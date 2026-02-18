@@ -25,9 +25,9 @@ See [INSTALLATION.md](./INSTALLATION.md) for detailed setup including offline en
 
 ## Documentation
 
-- [**INSTALLATION.md**](./INSTALLATION.md) – Install, uninstall, and development setup (including pre-commit hooks and code style)
-- [**USAGE.md**](./USAGE.md) – How to use `otranscribe`, examples, and common workflows
-- [**TROUBLESHOOTING.md**](./TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
+- [**INSTALLATION.md**](./docs/INSTALLATION.md) – Install, uninstall, and development setup (including pre-commit hooks and code style)
+- [**USAGE.md**](./docs/USAGE.md) – How to use `otranscribe`, examples, and common workflows
+- [**TROUBLESHOOTING.md**](./docs/TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
 
 ## Contributing
 
