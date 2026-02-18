@@ -1,0 +1,2 @@
+# Keep shell scripts LF-only (avoid CRLF issues on macOS/Linux)
+*.sh text eol=lf
