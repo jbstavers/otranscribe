@@ -11,7 +11,10 @@ help:
 	@echo "  make install-local   Install local whisper extra"
 	@echo "  make install-faster  Install faster-whisper extra"
 	@echo "  make test            Run pytest"
-	@echo "  make doctor          Run otranscribe doctor"
+	@echo "  make doctor          Run diagnostics (non-blocking)"
+	@echo "  make doctor-openai   Check OpenAI engine requirements"
+	@echo "  make doctor-local    Check local Whisper requirements"
+	@echo "  make doctor-faster   Check faster-whisper requirements"
 	@echo "  make clean           Remove venv + caches"
 
 venv:
@@ -31,7 +34,16 @@ test: install
 	@$(VENV)/bin/pytest -q
 
 doctor: install
-	@$(VENV)/bin/otranscribe doctor
+	@$(VENV)/bin/otranscribe doctor || true
+
+doctor-openai: install
+	@$(VENV)/bin/otranscribe doctor --engine openai
+
+doctor-local: install
+	@$(VENV)/bin/otranscribe doctor --engine local
+
+doctor-faster: install
+	@$(VENV)/bin/otranscribe doctor --engine faster
 
 clean:
 	@rm -rf $(VENV) .pytest_cache .otranscribe_cache **/__pycache__
