@@ -1,88 +1,44 @@
 # otranscribe
 
-`otranscribe` is a tiny command line interface for turning any audio or
-video into text. It primarily wraps the
-[OpenAI speech-to-text API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions),
-but also includes two **offline** backends so you can avoid network
-calls and API costs entirely. The CLI handles all of the boilerplate:
-it extracts audio from arbitrary input, normalises it, runs the
-transcription on your chosen engine and optionally renders a cleaned
-transcript with timestamps and speaker labels.
+`otranscribe` is a tiny command line interface for turning any audio or video into text. It primarily wraps the [OpenAI speech-to-text API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions), but also includes two **offline** backends so you can avoid network calls and API costs entirely. The CLI handles all of the boilerplate: it extracts audio from arbitrary input, normalises it, runs the transcription on your chosen engine and optionally renders a cleaned transcript with timestamps and speaker labels.
 
 ## Features
 
-- **Any input format** – as long as `ffmpeg` can read it, it can be
-  transcribed.
-- **Diarisation support** – by default it uses the
-  `gpt-4o-transcribe-diarize` model and requests `diarized_json`
-  output so that speakers are labelled. When you don't need
-  diarisation or want to avoid API costs, you can select the local
-  Whisper engine.
-- **Clean rendering** – remove filler words, collapse whitespace and
-  insert timestamps every N seconds and on speaker change.
-- **Raw output** – choose `--render raw` to write the exact response
-  from the engine (JSON, text, SRT, VTT, etc.).
-- **Choice of engine** – use the OpenAI API (`--engine openai`) for
-  high-quality diarised transcripts or choose one of the offline
-  backends when you want to work without an internet connection:
-
-  * **Local Whisper** (`--engine local`) – runs the reference
-    [openai-whisper](https://github.com/openai/whisper) model on your
-    machine. This backend produces accurate transcriptions but can
-    be relatively slow on CPU and does not assign speaker labels.
-
-  * **faster-whisper** (`--engine faster`) – uses the
-    [faster-whisper](https://github.com/guillaumekln/faster-whisper)
-    reimplementation based on CTranslate2. It is up to four times faster
-    than the original open source Whisper implementation and uses less
-    memory, with optional quantisation and GPU acceleration for even
-    greater speed. Since diarisation is not available locally, the
-    engine assigns all words to a single speaker (`Speaker 0`).
-- **Minimal dependencies** – uses `requests` instead of the heavy
-  `openai` client when talking to the API. The local engine only
-  imports Whisper if you choose `--engine local`.
-  The faster engine pulls in the `faster-whisper` package only when
-  selected.
+- **Any input format** – as long as `ffmpeg` can read it, it can be transcribed.
+- **Diarisation support** – by default it uses the `gpt-4o-transcribe-diarize` model and requests `diarized_json` output so that speakers are labelled. When you don't need diarisation or want to avoid API costs, you can select the local Whisper engine.
+- **Clean rendering** – remove filler words, collapse whitespace and insert timestamps every N seconds and on speaker change.
+- **Raw output** – choose `--render raw` to write the exact response from the engine (JSON, text, SRT, VTT, etc.).
+- **Choice of engine** – use the OpenAI API (`--engine openai`) for high-quality diarised transcripts or choose one of the offline backends when you want to work without an internet connection:
+  * **Local Whisper** (`--engine local`) – runs the reference [openai-whisper](https://github.com/openai/whisper) model on your machine. This backend produces accurate transcriptions but can be relatively slow on CPU and does not assign speaker labels.
+  * **faster-whisper** (`--engine faster`) – uses the [faster-whisper](https://github.com/guillaumekln/faster-whisper) reimplementation based on CTranslate2. It is up to four times faster than the original open source Whisper implementation and uses less memory, with optional quantisation and GPU acceleration for even greater speed. Since diarisation is not available locally, the engine assigns all words to a single speaker (`Speaker 0`).
+- **Minimal dependencies** – uses `requests` instead of the heavy `openai` client when talking to the API. The local engine only imports Whisper if you choose `--engine local`. The faster engine pulls in the `faster-whisper` package only when selected.
 
 ## Installation
 
 Before you can run `otranscribe` you need a few prerequisites:
 
 - **Python 3.9+** – the code is tested with 3.9 and newer.
-- **ffmpeg** – used to extract audio from videos and normalise input. You must install
-  this separately and ensure the `ffmpeg` binary is on your `PATH`. See OS-specific
-  notes below.
+- **ffmpeg** – used to extract audio from videos and normalise input. You must install this separately and ensure the `ffmpeg` binary is on your `PATH`. See OS-specific notes below.
 - **Requests** – installed automatically via the package dependencies.
 - **OpenAI API key** – only required when using the OpenAI engine.
 - **openai-whisper** – required only if you plan to use the local engine.
-- **faster-whisper** – required only if you plan to use the faster engine. This
-  backend depends on [CTranslate2](https://github.com/OpenNMT/CTranslate2) and can
-  leverage a GPU if available. Follow the upstream installation instructions on
-  macOS, Linux or Windows. On Linux, for example, you can install via
-  `pip install faster-whisper` and optionally `pip install ctranslate2` with
-  CUDA support.
+- **faster-whisper** – required only if you plan to use the faster engine. This backend depends on [CTranslate2](https://github.com/OpenNMT/CTranslate2) and can leverage a GPU if available. Follow the upstream installation instructions on macOS, Linux or Windows.
 
 ### Installing ffmpeg
 
-`otranscribe` relies on the external `ffmpeg` program. Typical installation
-methods by operating system:
+`otranscribe` relies on the external `ffmpeg` program. Typical installation methods by operating system:
 
 - **macOS**: install via [Homebrew](https://brew.sh/) with `brew install ffmpeg`.
 - **Ubuntu/Debian**: use your package manager: `sudo apt-get install ffmpeg`.
-- **Windows**: you can install via [Chocolatey](https://chocolatey.org/) with `choco install ffmpeg`, or
-  download the official static build from [ffmpeg.org](https://ffmpeg.org/) and add the `bin` directory
-  to your `PATH` environment variable.
+- **Windows**: you can install via [Chocolatey](https://chocolatey.org/) with `choco install ffmpeg`, or download the official static build from [ffmpeg.org](https://ffmpeg.org/) and add the `bin` directory to your `PATH` environment variable.
 
 ### Installing the package
 
-You can install `otranscribe` either from a published release (PyPI) or
-directly from a clone.
+You can install `otranscribe` either from a published release (PyPI) or directly from a clone.
 
 #### Option A: install from PyPI (when published)
 
-Use `pipx` (recommended) or `pip` to install the CLI after the prerequisites are met.
-`otranscribe` exposes extras for its optional backends so you can pull in
-only the dependencies you need:
+If this fails with "No matching distribution found", the project is not published yet. Use **Option B** below instead.
 
 ```bash
 # install globally using pipx (core only: uses OpenAI API)
@@ -114,7 +70,7 @@ pip install -U pip
 pip install -e .
 ```
 
-Verify the install:
+#### Verify the install:
 
 ```bash
 which otranscribe
@@ -122,14 +78,13 @@ otranscribe --help
 python -c "import otranscribe; print(otranscribe.__file__)"
 ```
 
-If you see `zsh: command not found: otranscribe`, you probably forgot to
-activate the virtualenv:
+If you see `zsh: command not found: otranscribe`, you probably forgot to activate the virtualenv:
 
 ```bash
 source .venv/bin/activate
 ```
 
-##### Optional extras from a clone
+#### Optional extras from a clone
 
 ```bash
 # local Whisper engine
@@ -167,23 +122,17 @@ pip install -e .
 
 ### Setting your API key
 
-When using the OpenAI engine you must set the `OPENAI_API_KEY` environment
-variable so the CLI can authenticate with the API:
+When using the OpenAI engine you must set the `OPENAI_API_KEY` environment variable so the CLI can authenticate with the API:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 ```
 
-The local and faster engines (`--engine local` and `--engine faster`) do
-not use the API and therefore do not require this variable. When
-working offline you can omit `OPENAI_API_KEY` entirely.
+The local and faster engines (`--engine local` and `--engine faster`) do not use the API and therefore do not require this variable.
 
 ## Usage
 
-The `otranscribe` command accepts an input file and optional flags to
-control the model, language, engine, response format and rendering. The
-default behaviour uses the OpenAI engine with diarisation, renders a
-clean transcript and writes it to `<input>.txt`.
+The `otranscribe` command accepts an input file and optional flags to control the model, language, engine, response format and rendering. The default behaviour uses the OpenAI engine with diarisation, renders a clean transcript and writes it to `<input>.txt`.
 
 ```bash
 otranscribe -i input.m4v
@@ -209,7 +158,9 @@ otranscribe -i call.m4a --every 15
 
 ## Development
 
-Quickstart (macOS/Linux) with Make:
+You can get started using Make targets, standalone scripts, or manual commands.
+
+### Quickstart (macOS/Linux) with Make:
 
 ```bash
 make install
@@ -224,7 +175,8 @@ make doctor-local
 make doctor-faster
 ```
 
-Quickstart without Make:
+### Quickstart without Make:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -232,6 +184,29 @@ pip install -U pip
 pip install -e ".[dev]"
 pytest
 otranscribe doctor
+```
+
+### Helper script alternative:
+
+```bash
+./scripts/bootstrap.sh
+./scripts/test.sh
+```
+
+### Windows notes:
+
+Create and activate venv using PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Then run:
+
+```bash
+pip install -e ".[dev]"
+pytest
 ```
 
 ## Troubleshooting
@@ -245,17 +220,16 @@ otranscribe doctor --engine local
 otranscribe doctor --engine faster
 ```
 
-If `otranscribe` is not found, make sure your virtualenv is active (`source .venv/bin/activate`)
-or install from the repo root with `pip install -e .`.
+If `otranscribe` is not found, make sure your virtualenv is active (`source .venv/bin/activate`) or install from the repo root with `pip install -e .`.
 
-otranscribe doctor exits non-zero if required deps for a selected engine are missing.
+`otranscribe doctor` exits non-zero if required deps for a selected engine are missing.
 
 Tip: `make doctor` is non-blocking; use `make doctor-openai`, `make doctor-local`, or `make doctor-faster` for strict checks.
 
-Contributions are welcome.  Please open issues or pull requests on the
-project repository.
+## Contributing
+
+Contributions are welcome. Please open issues or pull requests on the project repository.
 
 ## License
 
-Released under the terms of the MIT license. See [LICENSE](LICENSE)
-for details.
+Released under the terms of the MIT license. See `LICENSE` for details.
