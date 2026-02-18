@@ -20,7 +20,7 @@ missing an informative error will be raised.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
 def transcribe_faster(
@@ -31,7 +31,7 @@ def transcribe_faster(
     device: str = "cpu",
     compute_type: str = "int8",
     beam_size: int = 5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Transcribe a WAV file using the faster‑whisper backend.
 
     Parameters
@@ -85,7 +85,9 @@ def transcribe_faster(
             compute_type=compute_type,
         )
     except Exception as exc:
-        raise RuntimeError(f"Failed to load faster-whisper model '{model_size}': {exc}") from exc
+        raise RuntimeError(
+            f"Failed to load faster-whisper model '{model_size}': {exc}"
+        ) from exc
 
     # Transcribe the audio.  faster‑whisper returns a generator of segments and
     # an info object.  We collect all segments into a list so we can assign
@@ -99,8 +101,8 @@ def transcribe_faster(
     except Exception as exc:
         raise RuntimeError(f"faster-whisper failed to transcribe: {exc}") from exc
 
-    segments_list: List[Dict[str, Any]] = []
-    full_text_parts: List[str] = []
+    segments_list: list[dict[str, Any]] = []
+    full_text_parts: list[str] = []
     # faster‑whisper's segments generator yields objects with start, end, and text
     for seg in segments_gen:
         try:
@@ -112,12 +114,14 @@ def transcribe_faster(
         except Exception:
             end = 0.0
         text = getattr(seg, "text", "") or ""
-        segments_list.append({
-            "start": start,
-            "end": end,
-            "text": text,
-            "speaker": "Speaker 0",
-        })
+        segments_list.append(
+            {
+                "start": start,
+                "end": end,
+                "text": text,
+                "speaker": "Speaker 0",
+            }
+        )
         full_text_parts.append(text)
 
     return {

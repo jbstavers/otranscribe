@@ -19,7 +19,6 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -27,7 +26,7 @@ class CheckResult:
     ok: bool
     name: str
     message: str
-    fix: Optional[str] = None
+    fix: str | None = None
 
 
 def check_python_version(min_major: int = 3, min_minor: int = 9) -> CheckResult:
@@ -67,7 +66,10 @@ def check_openai_key() -> CheckResult:
 def check_local_whisper_dep() -> CheckResult:
     try:
         import whisper  # type: ignore  # noqa: F401
-        return CheckResult(ok=True, name="openai-whisper", message="openai-whisper installed")
+
+        return CheckResult(
+            ok=True, name="openai-whisper", message="openai-whisper installed"
+        )
     except Exception:
         return CheckResult(
             ok=False,
@@ -80,7 +82,10 @@ def check_local_whisper_dep() -> CheckResult:
 def check_faster_whisper_dep() -> CheckResult:
     try:
         import faster_whisper  # type: ignore  # noqa: F401
-        return CheckResult(ok=True, name="faster-whisper", message="faster-whisper installed")
+
+        return CheckResult(
+            ok=True, name="faster-whisper", message="faster-whisper installed"
+        )
     except Exception:
         return CheckResult(
             ok=False,
@@ -90,12 +95,12 @@ def check_faster_whisper_dep() -> CheckResult:
         )
 
 
-def run_checks(engine: Optional[str] = None) -> List[CheckResult]:
+def run_checks(engine: str | None = None) -> list[CheckResult]:
     """
     Run checks for a specific engine or for all engines (engine=None).
     Valid engines: openai | local | faster
     """
-    checks: List[CheckResult] = [
+    checks: list[CheckResult] = [
         check_python_version(),
         check_ffmpeg(),
     ]
@@ -110,14 +115,14 @@ def run_checks(engine: Optional[str] = None) -> List[CheckResult]:
     return checks
 
 
-def format_report(engine: Optional[str] = None) -> Tuple[bool, List[str]]:
+def format_report(engine: str | None = None) -> tuple[bool, list[str]]:
     """
     Returns (overall_ok, lines) for printing in CLI.
     """
     results = run_checks(engine)
     overall_ok = all(r.ok for r in results)
 
-    lines: List[str] = []
+    lines: list[str] = []
     for r in results:
         status = "✓" if r.ok else "✗"
         line = f"{status} {r.name}: {r.message}"

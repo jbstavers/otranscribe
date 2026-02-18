@@ -17,10 +17,10 @@ informative error is raised.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
-def transcribe_local(*, wav_path: Path, language: str, model: str) -> Dict[str, Any]:
+def transcribe_local(*, wav_path: Path, language: str, model: str) -> dict[str, Any]:
     """Transcribe a WAV file using a local Whisper model.
 
     Parameters
@@ -68,7 +68,7 @@ def transcribe_local(*, wav_path: Path, language: str, model: str) -> Dict[str, 
     # Perform the transcription.  We disable timestamps and segments
     # separately because we want segment boundaries for later rendering.
     try:
-        result: Dict[str, Any] = whisper_model.transcribe(
+        result: dict[str, Any] = whisper_model.transcribe(
             str(wav_path), language=language, verbose=False
         )
     except Exception as exc:

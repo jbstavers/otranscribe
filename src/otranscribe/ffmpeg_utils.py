@@ -19,6 +19,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 
 
