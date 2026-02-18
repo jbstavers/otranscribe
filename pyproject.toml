@@ -7,11 +7,31 @@ requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [ { name = "YOUR_NAME" } ]
 dependencies = [
-    "requests>=2.31.0",
+    # Pin the requests dependency to a safe major version range.  Restricting
+    # the upper bound helps mitigate supply‑chain risk by avoiding
+    # inadvertent upgrades to a new major version with breaking changes or
+    # vulnerabilities.  See https://semver.org/ for versioning practices.
+    "requests>=2.31.0,<3",
 ]
 
 [project.scripts]
 otranscribe = "otranscribe.cli:main"
+
+# Optional dependencies.  The ``local`` extra pulls in the ``openai-whisper``
+# package which is required for the offline Whisper engine.  Users can
+# install ``otranscribe[local]`` to enable the local engine.
+[project.optional-dependencies]
+local = [
+    "openai-whisper>=20230314",
+]
+
+# The ``faster`` extra installs the faster‑whisper backend.  It offers
+# significant performance improvements over the reference implementation by
+# leveraging CTranslate2 and supports quantisation.  See
+# https://github.com/guillaumekln/faster-whisper for details.
+faster = [
+    "faster-whisper>=0.10.0",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"

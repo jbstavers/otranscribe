@@ -146,6 +146,63 @@ def build_parser() -> argparse.ArgumentParser:
             " a new temporary directory will be used."
         ),
     )
+
+    # Allow selection of the transcription engine.  ``openai`` uses the
+    # OpenAI API (default).  ``local`` uses a locally installed Whisper
+    # model.  The local engine requires the ``whisper`` Python package and
+    # does not provide diarisation.
+    parser.add_argument(
+        "--engine",
+        default="openai",
+        choices=["openai", "local", "faster"],
+        help=(
+            "Transcription engine to use.  'openai' (default) calls the OpenAI"
+            " speech‑to‑text API.  'local' runs a local Whisper model (requires"
+            " the 'whisper' Python package).  'faster' uses the faster‑whisper"
+            " backend (requires the 'faster‑whisper' package) for higher speed"
+            " on CPU or GPU."
+        ),
+    )
+
+    # Whisper model size for the local engine.  Ignored when using the
+    # OpenAI engine.  Valid values mirror the Whisper model names (tiny,
+    # base, small, medium, large).  Defaults to 'medium'.
+    parser.add_argument(
+        "--whisper-model",
+        default="medium",
+        help=(
+            "Model size for the local Whisper engine (e.g., tiny, base, small,"
+            " medium, large).  Ignored when using --engine openai."
+        ),
+    )
+
+    # Faster‑whisper options.  Ignored unless --engine faster.  The model
+    # defines the quality/speed trade off (e.g. tiny, base, small, medium,
+    # large, large-v2, etc.).  Device can be 'cpu', 'cuda' or 'auto'.
+    parser.add_argument(
+        "--faster-model",
+        default="base",
+        help=(
+            "Model size for the faster‑whisper engine (e.g., tiny, base, small,"
+            " medium, large).  Ignored unless --engine faster."
+        ),
+    )
+    parser.add_argument(
+        "--faster-device",
+        default="cpu",
+        help=(
+            "Device for faster‑whisper (cpu, cuda or auto).  Ignored unless"
+            " --engine faster."
+        ),
+    )
+    parser.add_argument(
+        "--faster-compute-type",
+        default="int8",
+        help=(
+            "Compute type for faster‑whisper (e.g. fp16, int8, float16)."
+            " Ignored unless --engine faster."
+        ),
+    )
     return parser
 
 
@@ -160,10 +217,16 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    # Read the transcription engine and API key.  The API key is only
+    # mandatory when using the OpenAI engine.  When running locally
+    # (--engine local) or with faster‑whisper (--engine faster) the key
+    # may be omitted.
+    engine = args.engine
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    if engine == "openai" and not api_key:
         print(
-            "ERROR: environment variable OPENAI_API_KEY is not set.",
+            "ERROR: environment variable OPENAI_API_KEY is not set."
+            " Set this when using --engine openai.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -176,10 +239,16 @@ def main() -> None:
     # Ensure ffmpeg is available before starting any work.
     ensure_ffmpeg()
 
-    # Determine the API format: if final render, force diarised JSON.
+    # Determine the API format.  When rendering 'final' and using the
+    # OpenAI engine, diarised JSON is required to obtain speaker labels.
+    # The local and faster engines cannot perform diarisation; in those
+    # cases fall back to basic JSON.
     api_format = args.api_format
     if args.render == "final":
-        api_format = "diarized_json"
+        if engine == "openai":
+            api_format = "diarized_json"
+        else:
+            api_format = "json"
 
     # Determine the output path.
     if args.out:
@@ -188,18 +257,56 @@ def main() -> None:
         out_path = _default_out_path(in_path, args.render, api_format)
 
     # Convert the input to WAV.
-    wav_path = convert_to_wav_16k_mono(in_path, temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None)
+    wav_path = convert_to_wav_16k_mono(
+        in_path,
+        temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
+    )
 
-    # Call the OpenAI API.
+    # Transcribe the audio via the selected engine.
     try:
-        api_result = transcribe_file(
-            wav_path=wav_path,
-            api_key=api_key,
-            model=args.model,
-            language=args.language,
-            response_format=api_format,
-            chunking_strategy=args.chunking,
-        )
+        if engine == "openai":
+            api_result = transcribe_file(
+                wav_path=wav_path,
+                api_key=api_key,
+                model=args.model,
+                language=args.language,
+                response_format=api_format,
+                chunking_strategy=args.chunking,
+            )
+        elif engine == "local":
+            # Local whisper engine.  Import lazily to avoid pulling in the
+            # dependency unless needed.  If whisper is not installed, the
+            # import will fail and the user will see an informative error.
+            try:
+                from .local_stt import transcribe_local  # type: ignore
+            except Exception as imp_exc:
+                raise RuntimeError(
+                    "Local engine selected but the 'whisper' package could not be imported."
+                    " Install it via 'pip install openai-whisper' or choose a different engine."
+                ) from imp_exc
+            api_result = transcribe_local(
+                wav_path=wav_path,
+                language=args.language,
+                model=args.whisper_model,
+            )
+        else:
+            # Faster‑whisper engine.  Import lazily to avoid pulling in the
+            # dependency unless needed.  If faster_whisper is not installed,
+            # the import will fail and the user will see an informative error.
+            try:
+                from .faster_stt import transcribe_faster  # type: ignore
+            except Exception as imp_exc:
+                raise RuntimeError(
+                    "Faster engine selected but the 'faster-whisper' package could not be imported."
+                    " Install it via 'pip install faster-whisper' or choose a different engine."
+                ) from imp_exc
+            api_result = transcribe_faster(
+                wav_path=wav_path,
+                model_size=args.faster_model,
+                language=args.language,
+                device=args.faster_device,
+                compute_type=args.faster_compute_type,
+            )
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR: failed to transcribe file: {exc}", file=sys.stderr)
         if not args.keep_temp:
