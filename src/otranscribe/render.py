@@ -25,7 +25,8 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 # Patterns of filler words to remove.  Use word boundaries to avoid
 # partial matches.  Feel free to add additional Portuguese fillers here.
@@ -89,7 +90,7 @@ def _normalise_speaker_label(label: Any) -> str:
     return s
 
 
-def _apply_speaker_map(label: str, speaker_map: Optional[dict[str, str]]) -> str:
+def _apply_speaker_map(label: str, speaker_map: dict[str, str] | None) -> str:
     """Apply a user provided speaker map to a label.
 
     If ``speaker_map`` is not ``None`` and contains the key ``label``,
@@ -104,7 +105,7 @@ def _render_lines_txt(
     segments: Iterable[dict[str, Any]],
     *,
     every_seconds: int,
-    speaker_map: Optional[dict[str, str]] = None,
+    speaker_map: dict[str, str] | None = None,
 ) -> list[str]:
     """Render diarised segments as plain text lines.
 
@@ -128,7 +129,9 @@ def _render_lines_txt(
         speaker = _apply_speaker_map(speaker, speaker_map)
         bucket = int(math.floor(start / every_seconds) * every_seconds)
         new_block = (
-            current_bucket is None or bucket != current_bucket or speaker != last_speaker
+            current_bucket is None
+            or bucket != current_bucket
+            or speaker != last_speaker
         )
         if new_block:
             lines.append(f"[{_ts(bucket)}] {speaker}: {text}")
@@ -143,7 +146,7 @@ def _render_lines_md(
     segments: Iterable[dict[str, Any]],
     *,
     every_seconds: int,
-    speaker_map: Optional[dict[str, str]] = None,
+    speaker_map: dict[str, str] | None = None,
     style: str = "simple",
 ) -> list[str]:
     """Render diarised segments as Markdown lines.
@@ -184,7 +187,9 @@ def _render_lines_md(
         speaker = _apply_speaker_map(speaker, speaker_map)
         bucket = int(math.floor(start / every_seconds) * every_seconds)
         new_block = (
-            current_bucket is None or bucket != current_bucket or speaker != last_speaker
+            current_bucket is None
+            or bucket != current_bucket
+            or speaker != last_speaker
         )
         if new_block:
             if style == "meeting":
@@ -210,7 +215,7 @@ def render_final(
     api_result: Any,
     *,
     every_seconds: int = 30,
-    speaker_map: Optional[dict[str, str]] = None,
+    speaker_map: dict[str, str] | None = None,
     out_format: str = "txt",
     md_style: str = "simple",
 ) -> str:

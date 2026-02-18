@@ -7,8 +7,6 @@ speaker grouping and cleaning behave as expected.
 
 from __future__ import annotations
 
-import pytest
-
 from otranscribe.render import render_final
 
 

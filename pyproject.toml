@@ -38,6 +38,9 @@ faster = [
 # avoid bloating end user installations.
 dev = [
     "pytest>=7.0.0",
+    "black>=24.10.0",
+    "ruff>=0.6.9",
+    "pre-commit>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
@@ -49,3 +52,21 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# Black
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+# Ruff
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+respect-gitignore = true
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # handled by Black
+
+[tool.ruff.lint.isort]
+known-first-party = ["otranscribe"]

@@ -17,12 +17,10 @@ input appropriately.  See the OpenAI docs for full details.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any
 
 import requests
-
 
 # The endpoint used for transcription.  This is stable according to
 # OpenAI's documentation.  It accepts multipart/form-data with the file
@@ -79,7 +77,7 @@ def transcribe_file(
     files = {
         "file": (wav_path.name, wav_path.read_bytes(), "audio/wav"),
     }
-    data: Dict[str, Union[str, bytes]] = {
+    data: dict[str, str | bytes] = {
         "model": model,
         "language": language,
         "response_format": response_format,
@@ -104,6 +102,8 @@ def transcribe_file(
     # Determine whether to parse JSON.  The API returns JSON when the
     # response_format is one of the JSON types, otherwise plain text.
     content_type = resp.headers.get("content-type", "")
-    if ("application/json" in content_type) or (response_format in {"json", "verbose_json", "diarized_json"}):
+    if ("application/json" in content_type) or (
+        response_format in {"json", "verbose_json", "diarized_json"}
+    ):
         return resp.json()
     return resp.text

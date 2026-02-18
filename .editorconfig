@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+# Most files: 4 spaces
+[*.{py,toml,yml,yaml,json,md}]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+# Markdown: keep trailing whitespace trimming ON (good default)
+[*.md]
+trim_trailing_whitespace = true
+
+# Shell scripts
+[*.sh]
+indent_style = space
+indent_size = 2
+
+# Makefile must use tabs for recipes
+[Makefile]
+indent_style = tab

@@ -25,16 +25,17 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
-from .ffmpeg_utils import (
-    ensure_ffmpeg,
-    convert_to_wav_16k_mono,
-    split_wav_into_chunks,
-)
 from .cache import (
     compute_cache_key,
     load_cached_result,
     save_cached_result,
+)
+from .ffmpeg_utils import (
+    convert_to_wav_16k_mono,
+    ensure_ffmpeg,
+    split_wav_into_chunks,
 )
 from .openai_stt import transcribe_file
 from .render import render_final
@@ -121,10 +122,23 @@ def build_parser() -> argparse.ArgumentParser:
     # (Below is identical to your previous parser.add_argument calls,
     #  just renamed to transcribe_parser.add_argument)
 
-    transcribe_parser.add_argument("-i", "--input", required=True, help="Input file (audio or video). Any ffmpeg-supported format.")
-    transcribe_parser.add_argument("-o", "--out", default=None, help="Output path (optional).")
-    transcribe_parser.add_argument("--model", default="gpt-4o-transcribe-diarize", help="OpenAI transcription model.")
-    transcribe_parser.add_argument("--language", default="pt", help="Language code, e.g., pt, en, es.")
+    transcribe_parser.add_argument(
+        "-i",
+        "--input",
+        required=True,
+        help="Input file (audio or video). Any ffmpeg-supported format.",
+    )
+    transcribe_parser.add_argument(
+        "-o", "--out", default=None, help="Output path (optional)."
+    )
+    transcribe_parser.add_argument(
+        "--model",
+        default="gpt-4o-transcribe-diarize",
+        help="OpenAI transcription model.",
+    )
+    transcribe_parser.add_argument(
+        "--language", default="pt", help="Language code, e.g., pt, en, es."
+    )
 
     transcribe_parser.add_argument(
         "--api-format",
@@ -138,10 +152,25 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(SUPPORTED_RENDER_FORMATS),
         help="raw = write engine output as-is; final = cleaned transcript with timestamps + speakers.",
     )
-    transcribe_parser.add_argument("--every", type=int, default=30, help="Timestamp bucket seconds for final render (default 30).")
-    transcribe_parser.add_argument("--chunking", default="auto", help="OpenAI chunking_strategy (recommended: auto for long audio).")
-    transcribe_parser.add_argument("--keep-temp", action="store_true", help="Keep temp WAV and intermediate artifacts.")
-    transcribe_parser.add_argument("--temp-dir", default=None, help="Optional temp directory to use.")
+    transcribe_parser.add_argument(
+        "--every",
+        type=int,
+        default=30,
+        help="Timestamp bucket seconds for final render (default 30).",
+    )
+    transcribe_parser.add_argument(
+        "--chunking",
+        default="auto",
+        help="OpenAI chunking_strategy (recommended: auto for long audio).",
+    )
+    transcribe_parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help="Keep temp WAV and intermediate artifacts.",
+    )
+    transcribe_parser.add_argument(
+        "--temp-dir", default=None, help="Optional temp directory to use."
+    )
 
     # Engine selection (keep your existing flags; ensure choices match your repo)
     transcribe_parser.add_argument(
@@ -152,27 +181,70 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Local engine
-    transcribe_parser.add_argument("--whisper-model", default="base", help="Local Whisper model name (tiny/base/small/medium/large).")
+    transcribe_parser.add_argument(
+        "--whisper-model",
+        default="base",
+        help="Local Whisper model name (tiny/base/small/medium/large).",
+    )
 
     # Faster engine
-    transcribe_parser.add_argument("--faster-model", default="small", help="faster-whisper model size/name.")
-    transcribe_parser.add_argument("--faster-device", default="auto", help="Device for faster-whisper (auto/cpu/cuda).")
-    transcribe_parser.add_argument("--faster-compute-type", default="int8", help="Compute type (int8/float16/float32).")
+    transcribe_parser.add_argument(
+        "--faster-model", default="small", help="faster-whisper model size/name."
+    )
+    transcribe_parser.add_argument(
+        "--faster-device",
+        default="auto",
+        help="Device for faster-whisper (auto/cpu/cuda).",
+    )
+    transcribe_parser.add_argument(
+        "--faster-compute-type",
+        default="int8",
+        help="Compute type (int8/float16/float32).",
+    )
 
     # Cache controls (if present in your repo already; keep them here)
-    transcribe_parser.add_argument("--cache-dir", default=".otranscribe_cache", help="Cache directory for results.")
-    transcribe_parser.add_argument("--no-cache", action="store_true", help="Disable caching.")
+    transcribe_parser.add_argument(
+        "--cache-dir", default=".otranscribe_cache", help="Cache directory for results."
+    )
+    transcribe_parser.add_argument(
+        "--no-cache", action="store_true", help="Disable caching."
+    )
 
     # Chunking for offline engines (if present)
-    transcribe_parser.add_argument("--chunk-seconds", type=int, default=0, help="Offline chunk duration in seconds (0 disables).")
-    transcribe_parser.add_argument("--chunk-overlap-seconds", type=int, default=0, help="Offline chunk overlap in seconds (0 disables).")
+    transcribe_parser.add_argument(
+        "--chunk-seconds",
+        type=int,
+        default=0,
+        help="Offline chunk duration in seconds (0 disables).",
+    )
+    transcribe_parser.add_argument(
+        "--chunk-overlap-seconds",
+        type=int,
+        default=0,
+        help="Offline chunk overlap in seconds (0 disables).",
+    )
 
     # Output formatting
-    transcribe_parser.add_argument("--speaker-map", default=None, help="Path to JSON speaker map (e.g. {\"Speaker 0\":\"Interviewer\"}).")
-    transcribe_parser.add_argument("--out-format", choices=["txt", "md"], default="txt", help="Output format for final render.")
-    transcribe_parser.add_argument("--md-style", choices=["simple", "meeting"], default="simple", help="Markdown style when --out-format md.")
+    transcribe_parser.add_argument(
+        "--speaker-map",
+        default=None,
+        help='Path to JSON speaker map (e.g. {"Speaker 0":"Interviewer"}).',
+    )
+    transcribe_parser.add_argument(
+        "--out-format",
+        choices=["txt", "md"],
+        default="txt",
+        help="Output format for final render.",
+    )
+    transcribe_parser.add_argument(
+        "--md-style",
+        choices=["simple", "meeting"],
+        default="simple",
+        help="Markdown style when --out-format md.",
+    )
 
     return parser
+
 
 def main() -> None:
     """Run the command line interface.
@@ -182,7 +254,6 @@ def main() -> None:
     output.  Errors are written to stderr and result in a nonzero
     exit status.
     """
-    parser = build_parser()
     args = build_parser().parse_args()
 
     # Backward compatibility: `otranscribe -i file` should act like `otranscribe transcribe -i file`
@@ -191,6 +262,7 @@ def main() -> None:
 
     if args.command == "doctor":
         from .doctor import format_report
+
         ok, lines = format_report(getattr(args, "engine", None))
         for line in lines:
             print(line)
@@ -258,11 +330,13 @@ def main() -> None:
     speaker_map: dict[str, str] | None = None
     if args.speaker_map:
         import json
+
         try:
-            with open(Path(args.speaker_map).expanduser(), "r", encoding="utf-8") as f:
+            with open(Path(args.speaker_map).expanduser(), encoding="utf-8") as f:
                 raw_map = json.load(f)
             if isinstance(raw_map, dict):
                 from .render import _normalise_speaker_label  # type: ignore
+
                 speaker_map = {}
                 for k, v in raw_map.items():
                     speaker_map[_normalise_speaker_label(k)] = str(v)
@@ -279,8 +353,10 @@ def main() -> None:
 
     # Set up caching.  Caching is enabled unless --no-cache is given.
     use_cache = not args.no_cache
-    cache_dir = Path(args.cache_dir).expanduser().resolve() if args.cache_dir else Path(
-        ".otranscribe_cache"
+    cache_dir = (
+        Path(args.cache_dir).expanduser().resolve()
+        if args.cache_dir
+        else Path(".otranscribe_cache")
     )
 
     # Compute cache key if caching is enabled.
@@ -290,7 +366,13 @@ def main() -> None:
             key = compute_cache_key(
                 wav_path,
                 engine=engine,
-                model=args.model if engine == "openai" else (args.whisper_model if engine == "local" else args.faster_model),
+                model=(
+                    args.model
+                    if engine == "openai"
+                    else (
+                        args.whisper_model if engine == "local" else args.faster_model
+                    )
+                ),
                 language=args.language,
                 api_format=api_format,
                 chunk_seconds=chunk_seconds,
@@ -349,14 +431,27 @@ def main() -> None:
                     # Transcribe each chunk and accumulate segments with offsets
                     segments: list[dict[str, Any]] = []
                     offset = 0.0
-                    for idx, chunk_path in enumerate(split_wav_into_chunks(wav_path, chunk_seconds, None)):
+                    overlap = (
+                        args.chunk_overlap_seconds
+                        if args.chunk_overlap_seconds and args.chunk_overlap_seconds > 0
+                        else 0
+                    )
+                    for _idx, chunk_path in enumerate(
+                        split_wav_into_chunks(wav_path, chunk_seconds, overlap)
+                    ):
                         result = transcribe_single(chunk_path)
-                        segs = result.get("segments", []) if isinstance(result, dict) else []
+                        segs = (
+                            result.get("segments", [])
+                            if isinstance(result, dict)
+                            else []
+                        )
                         for seg in segs:
                             # copy to avoid mutating original segment
                             seg_copy = dict(seg)
                             try:
-                                seg_copy["start"] = float(seg_copy.get("start", 0)) + offset
+                                seg_copy["start"] = (
+                                    float(seg_copy.get("start", 0)) + offset
+                                )
                                 seg_copy["end"] = float(seg_copy.get("end", 0)) + offset
                             except Exception:
                                 pass
@@ -364,7 +459,10 @@ def main() -> None:
                         # update offset by chunk_seconds rather than actual duration
                         offset += float(chunk_seconds)
                     # Compose a fake API result
-                    api_result = {"segments": segments, "text": " ".join(seg.get("text", "") for seg in segments)}
+                    api_result = {
+                        "segments": segments,
+                        "text": " ".join(seg.get("text", "") for seg in segments),
+                    }
                 else:
                     api_result = transcribe_single(wav_path)
         except Exception as exc:  # noqa: BLE001
@@ -388,6 +486,7 @@ def main() -> None:
             # Write raw output depending on type.
             if isinstance(api_result, (dict, list)):
                 import json
+
                 out_path.write_text(
                     json.dumps(api_result, ensure_ascii=False, indent=2),
                     encoding="utf-8",

@@ -2,6 +2,16 @@
 
 `otranscribe` is a tiny command line interface for turning any audio or video into text. It primarily wraps the [OpenAI speech-to-text API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions), but also includes two **offline** backends so you can avoid network calls and API costs entirely. The CLI handles all of the boilerplate: it extracts audio from arbitrary input, normalises it, runs the transcription on your chosen engine and optionally renders a cleaned transcript with timestamps and speaker labels.
 
+## Quick start
+
+```bash
+pip install otranscribe
+export OPENAI_API_KEY="sk-..."
+otranscribe -i audio.mp3
+```
+
+See [INSTALLATION.md](./INSTALLATION.md) for detailed setup including offline engines.
+
 ## Features
 
 - **Any input format** – as long as `ffmpeg` can read it, it can be transcribed.
@@ -13,222 +23,15 @@
   * **faster-whisper** (`--engine faster`) – uses the [faster-whisper](https://github.com/guillaumekln/faster-whisper) reimplementation based on CTranslate2. It is up to four times faster than the original open source Whisper implementation and uses less memory, with optional quantisation and GPU acceleration for even greater speed. Since diarisation is not available locally, the engine assigns all words to a single speaker (`Speaker 0`).
 - **Minimal dependencies** – uses `requests` instead of the heavy `openai` client when talking to the API. The local engine only imports Whisper if you choose `--engine local`. The faster engine pulls in the `faster-whisper` package only when selected.
 
-## Installation
-
-Before you can run `otranscribe` you need a few prerequisites:
-
-- **Python 3.9+** – the code is tested with 3.9 and newer.
-- **ffmpeg** – used to extract audio from videos and normalise input. You must install this separately and ensure the `ffmpeg` binary is on your `PATH`. See OS-specific notes below.
-- **Requests** – installed automatically via the package dependencies.
-- **OpenAI API key** – only required when using the OpenAI engine.
-- **openai-whisper** – required only if you plan to use the local engine.
-- **faster-whisper** – required only if you plan to use the faster engine. This backend depends on [CTranslate2](https://github.com/OpenNMT/CTranslate2) and can leverage a GPU if available. Follow the upstream installation instructions on macOS, Linux or Windows.
-
-### Installing ffmpeg
-
-`otranscribe` relies on the external `ffmpeg` program. Typical installation methods by operating system:
-
-- **macOS**: install via [Homebrew](https://brew.sh/) with `brew install ffmpeg`.
-- **Ubuntu/Debian**: use your package manager: `sudo apt-get install ffmpeg`.
-- **Windows**: you can install via [Chocolatey](https://chocolatey.org/) with `choco install ffmpeg`, or download the official static build from [ffmpeg.org](https://ffmpeg.org/) and add the `bin` directory to your `PATH` environment variable.
-
-### Installing the package
-
-You can install `otranscribe` either from a published release (PyPI) or directly from a clone.
-
-#### Option A: install from PyPI (when published)
-
-If this fails with "No matching distribution found", the project is not published yet. Use **Option B** below instead.
-
-```bash
-# install globally using pipx (core only: uses OpenAI API)
-pipx install otranscribe
-
-# or install into the current environment via pip
-pip install otranscribe
-
-# enable the local Whisper engine
-pip install otranscribe[local]
-
-# enable the faster-whisper engine
-pip install otranscribe[faster]
-
-# install both offline engines together
-pip install otranscribe[local,faster]
-```
-
-#### Option B: install locally from a clone (recommended for development)
-
-```bash
-git clone <repo-url>
-cd otranscribe
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-
-# install the CLI in editable mode
-pip install -e .
-```
-
-#### Verify the install:
-
-```bash
-which otranscribe
-otranscribe --help
-python -c "import otranscribe; print(otranscribe.__file__)"
-```
-
-If you see `zsh: command not found: otranscribe`, you probably forgot to activate the virtualenv:
-
-```bash
-source .venv/bin/activate
-```
-
-#### Optional extras from a clone
-
-```bash
-# local Whisper engine
-pip install -e ".[local]"
-
-# faster-whisper engine
-pip install -e ".[faster]"
-
-# dev dependencies (pytest, etc.)
-pip install -e ".[dev]"
-```
-
-#### Alternative: requirements files (clone-only)
-
-If you prefer installing dependencies via requirements files:
-
-```bash
-git clone <repo-url>
-cd otranscribe
-python3 -m venv .venv
-source .venv/bin/activate
-
-# core dependencies (API only)
-pip install -r requirements.txt
-
-# optional: install openai-whisper for the local engine
-pip install -r requirements-local.txt
-
-# optional: install faster-whisper for the faster engine
-pip install -r requirements-faster.txt
-
-# install the package itself
-pip install -e .
-```
-
-### Setting your API key
-
-When using the OpenAI engine you must set the `OPENAI_API_KEY` environment variable so the CLI can authenticate with the API:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-The local and faster engines (`--engine local` and `--engine faster`) do not use the API and therefore do not require this variable.
-
-## Usage
-
-The `otranscribe` command accepts an input file and optional flags to control the model, language, engine, response format and rendering. The default behaviour uses the OpenAI engine with diarisation, renders a clean transcript and writes it to `<input>.txt`.
-
-```bash
-otranscribe -i input.m4v
-
-# use the local Whisper engine (requires `openai-whisper`)
-otranscribe -i interview.mp3 --engine local --whisper-model medium
-
-# use the faster-whisper engine (requires `faster-whisper`)
-otranscribe -i interview.mp3 --engine faster --faster-model small --faster-device auto --faster-compute-type int8
-
-# custom output name
-otranscribe -i interview.mp3 -o interview.md
-
-# raw diarised JSON for post-processing
-otranscribe -i meeting.wav --render raw --api-format diarized_json -o meeting.json
-
-# output SRT subtitles (no speaker labels)
-otranscribe -i video.mp4 --render raw --api-format srt -o video.srt
-
-# change the timestamp bucket to 15 seconds in the final render
-otranscribe -i call.m4a --every 15
-```
-
-## Development
-
-You can get started using Make targets, standalone scripts, or manual commands.
-
-### Quickstart (macOS/Linux) with Make:
-
-```bash
-make install
-make test
-
-# non-blocking diagnostics (prints what is missing)
-make doctor
-
-# strict checks per engine (fail if deps are missing)
-make doctor-openai
-make doctor-local
-make doctor-faster
-```
-
-### Quickstart without Make:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e ".[dev]"
-pytest
-otranscribe doctor
-```
-
-### Helper script alternative:
-
-```bash
-./scripts/bootstrap.sh
-./scripts/test.sh
-```
-
-### Windows notes:
-
-Create and activate venv using PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Then run:
-
-```bash
-pip install -e ".[dev]"
-pytest
-```
-
-## Troubleshooting
-
-Run:
-
-```bash
-otranscribe doctor
-otranscribe doctor --engine openai
-otranscribe doctor --engine local
-otranscribe doctor --engine faster
-```
-
-If `otranscribe` is not found, make sure your virtualenv is active (`source .venv/bin/activate`) or install from the repo root with `pip install -e .`.
-
-`otranscribe doctor` exits non-zero if required deps for a selected engine are missing.
-
-Tip: `make doctor` is non-blocking; use `make doctor-openai`, `make doctor-local`, or `make doctor-faster` for strict checks.
+## Documentation
+
+- [**INSTALLATION.md**](./INSTALLATION.md) – Install, uninstall, and development setup (including pre-commit hooks and code style)
+- [**USAGE.md**](./USAGE.md) – How to use `otranscribe`, examples, and common workflows
+- [**TROUBLESHOOTING.md**](./TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
 
 ## Contributing
 
-Contributions are welcome. Please open issues or pull requests on the project repository.
+Contributions are welcome. Please open issues or pull requests on the project repository. See [INSTALLATION.md](./INSTALLATION.md#development-setup) for development environment setup.
 
 ## License
 
