@@ -214,7 +214,14 @@ Quickstart (macOS/Linux) with Make:
 ```bash
 make install
 make test
+
+# non-blocking diagnostics (prints what is missing)
 make doctor
+
+# strict checks per engine (fail if deps are missing)
+make doctor-openai
+make doctor-local
+make doctor-faster
 ```
 
 Quickstart without Make:
@@ -238,12 +245,12 @@ otranscribe doctor --engine local
 otranscribe doctor --engine faster
 ```
 
-```bash
 If `otranscribe` is not found, make sure your virtualenv is active (`source .venv/bin/activate`)
 or install from the repo root with `pip install -e .`.
-```
 
 otranscribe doctor exits non-zero if required deps for a selected engine are missing.
+
+Tip: `make doctor` is non-blocking; use `make doctor-openai`, `make doctor-local`, or `make doctor-faster` for strict checks.
 
 Contributions are welcome.  Please open issues or pull requests on the
 project repository.
