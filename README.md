@@ -170,6 +170,17 @@ pip install -e .[dev]
 pytest
 ```
 
+## Troubleshooting
+
+Run:
+
+```bash
+otranscribe doctor
+otranscribe doctor --engine openai
+otranscribe doctor --engine local
+otranscribe doctor --engine faster
+```
+
 Contributions are welcome.  Please open issues or pull requests on the
 project repository.
 
