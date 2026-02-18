@@ -43,3 +43,9 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-ra -q"
 testpaths = ["tests"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
