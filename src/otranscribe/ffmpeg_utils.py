@@ -92,3 +92,80 @@ def convert_to_wav_16k_mono(input_path: Path, *, temp_dir: Path | None = None) -
 
     subprocess.run(cmd, check=True)
     return wav_path
+
+
+def wav_duration_seconds(wav_path: Path) -> float:
+    """Return the duration of a WAV file in seconds.
+
+    This helper opens the WAV using the built‑in :mod:`wave` module and
+    calculates the duration as ``frames / frame_rate``.  It will raise
+    if the file cannot be read.
+    """
+    import contextlib
+    import wave
+
+    with contextlib.closing(wave.open(str(wav_path), "rb")) as wf:
+        frames = wf.getnframes()
+        rate = wf.getframerate()
+        return frames / float(rate)
+
+
+def split_wav_into_chunks(
+    wav_path: Path,
+    chunk_seconds: int,
+    temp_dir: Path | None = None,
+) -> Iterable[Path]:
+    """Yield paths to chunked WAV files of approximately ``chunk_seconds`` seconds.
+
+    This helper reads the input WAV and writes successive chunks to a
+    temporary directory.  Each chunk preserves the original sample rate,
+    channel count and sample width.  The final chunk may be shorter
+    than ``chunk_seconds`` if the audio does not divide evenly.  Chunks
+    are named ``chunk_XXXX.wav`` where XXXX is a zero‑padded index.
+
+    Parameters
+    ----------
+    wav_path: Path
+        Path to the input WAV file.
+    chunk_seconds: int
+        Desired chunk duration in seconds.  Must be positive.
+    temp_dir: Path | None, optional
+        Directory to write chunk files into.  If omitted, a new
+        temporary directory is created.  Callers may remove the
+        directory when done.
+
+    Yields
+    ------
+    Path
+        Paths to the chunk files in order.
+    """
+    import contextlib
+    import tempfile
+    import wave
+
+    if chunk_seconds <= 0:
+        raise ValueError("chunk_seconds must be a positive integer")
+    # Determine output directory
+    if temp_dir is not None:
+        workdir = Path(temp_dir).expanduser().resolve()
+    else:
+        workdir = Path(tempfile.mkdtemp(prefix="otranscribe-chunks-"))
+    workdir.mkdir(parents=True, exist_ok=True)
+    with contextlib.closing(wave.open(str(wav_path), "rb")) as wf:
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        framerate = wf.getframerate()
+        frames_per_chunk = int(chunk_seconds * framerate)
+        chunk_index = 0
+        while True:
+            frames = wf.readframes(frames_per_chunk)
+            if not frames:
+                break
+            chunk_path = workdir / f"chunk_{chunk_index:04d}.wav"
+            with contextlib.closing(wave.open(str(chunk_path), "wb")) as cf:
+                cf.setnchannels(n_channels)
+                cf.setsampwidth(sampwidth)
+                cf.setframerate(framerate)
+                cf.writeframes(frames)
+            yield chunk_path
+            chunk_index += 1

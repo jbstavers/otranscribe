@@ -26,7 +26,16 @@ import os
 import sys
 from pathlib import Path
 
-from .ffmpeg_utils import ensure_ffmpeg, convert_to_wav_16k_mono
+from .ffmpeg_utils import (
+    ensure_ffmpeg,
+    convert_to_wav_16k_mono,
+    split_wav_into_chunks,
+)
+from .cache import (
+    compute_cache_key,
+    load_cached_result,
+    save_cached_result,
+)
 from .openai_stt import transcribe_file
 from .render import render_final
 
@@ -47,6 +56,15 @@ SUPPORTED_API_FORMATS = {
 # produces a cleaned transcript with timestamps and speaker labels.
 SUPPORTED_RENDER_FORMATS = {"raw", "final"}
 
+# Output formats for the final render.  ``txt`` produces plain text
+# (current default) and ``md`` produces Markdown.  Additional formats
+# could be added in the future.
+SUPPORTED_OUT_FORMATS = {"txt", "md"}
+
+# Markdown styles.  See :func:`otranscribe.render.render_final` for
+# details.
+SUPPORTED_MD_STYLES = {"simple", "meeting"}
+
 
 def _default_out_path(input_path: Path, render: str, api_format: str) -> Path:
     """Construct a reasonable default output filename.
@@ -57,6 +75,8 @@ def _default_out_path(input_path: Path, render: str, api_format: str) -> Path:
     """
     stem = input_path.stem
     if render == "final":
+        # Default final outputs to .txt; callers may override for
+        # Markdown or other formats in the CLI.
         return Path(f"{stem}.txt")
     # raw output
     if api_format in {"json", "verbose_json", "diarized_json"}:
@@ -71,9 +91,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="otranscribe",
         description=(
-            "Transcribe any audio or video file via OpenAI STT.  Converts"
-            " input to WAV automatically and optionally produces a cleaned"
-            " transcript with timestamps and speaker labels."
+            "Transcribe any audio or video file into text.  The CLI converts "
+            "input to WAV automatically, invokes the selected speech engine, "
+            "and optionally produces a cleaned transcript with timestamps, "
+            "speaker labels, caching and Markdown formatting."
         ),
     )
     parser.add_argument(
@@ -119,6 +140,74 @@ def build_parser() -> argparse.ArgumentParser:
             " timestamps and speakers; 'raw' writes the API response as"
             " returned."
         ),
+    )
+
+    # Format of the final transcript when --render final.  txt (plain
+    # text) is the default.  md produces Markdown.
+    parser.add_argument(
+        "--out-format",
+        default="txt",
+        choices=sorted(SUPPORTED_OUT_FORMATS),
+        help=(
+            "Output format for the final render: 'txt' for plain text "
+            "(default) or 'md' for Markdown.  Only relevant when --render "
+            "is 'final'."
+        ),
+    )
+
+    # Markdown style for md output.  Ignored unless --out-format md.
+    parser.add_argument(
+        "--md-style",
+        default="simple",
+        choices=sorted(SUPPORTED_MD_STYLES),
+        help=(
+            "Markdown style used when --out-format=md.  'simple' produces a "
+            "bullet list of utterances; 'meeting' produces heading‑style "
+            "meeting notes."
+        ),
+    )
+
+    # Speaker map file.  JSON mapping from speaker labels (e.g.
+    # "Speaker 0") to human friendly names.
+    parser.add_argument(
+        "--speaker-map",
+        dest="speaker_map",
+        help=(
+            "Path to a JSON file mapping speaker labels (e.g. 'Speaker 0') to "
+            "human friendly names.  Only applies to final renders."
+        ),
+    )
+
+    # Offline chunk size.  When using local or faster engines, split the
+    # audio into chunks of this duration (in seconds) before
+    # transcription.  A value of 0 disables chunking.
+    parser.add_argument(
+        "--chunk-seconds",
+        type=int,
+        default=0,
+        help=(
+            "For offline engines, split the WAV into chunks of this many "
+            "seconds before transcribing.  Helps with long files.  0 disables "
+            "chunking (default)."
+        ),
+    )
+
+    # Caching options.  By default results are cached in a '.otranscribe_cache'
+    # directory under the current working directory.  Use --no-cache to
+    # disable caching entirely and --cache-dir to override the directory.
+    parser.add_argument(
+        "--cache-dir",
+        dest="cache_dir",
+        help=(
+            "Directory in which to store cached transcription results.  "
+            "Defaults to '.otranscribe_cache' in the current working "
+            "directory."
+        ),
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable reading and writing the cache.  Forces a fresh transcription.",
     )
     parser.add_argument(
         "--every",
@@ -239,10 +328,9 @@ def main() -> None:
     # Ensure ffmpeg is available before starting any work.
     ensure_ffmpeg()
 
-    # Determine the API format.  When rendering 'final' and using the
-    # OpenAI engine, diarised JSON is required to obtain speaker labels.
-    # The local and faster engines cannot perform diarisation; in those
-    # cases fall back to basic JSON.
+    # Determine the API response format.  When rendering a final
+    # transcript using the OpenAI engine, diarised JSON is required to
+    # obtain speaker labels.  Offline engines cannot provide diarisation.
     api_format = args.api_format
     if args.render == "final":
         if engine == "openai":
@@ -250,11 +338,24 @@ def main() -> None:
         else:
             api_format = "json"
 
-    # Determine the output path.
+    # Determine the output file path.  For final renders the extension
+    # derives from the out_format (txt or md).  For raw renders fall
+    # back to the API format.  If the user supplies --out it takes
+    # precedence.
     if args.out:
         out_path = Path(args.out).expanduser().resolve()
     else:
-        out_path = _default_out_path(in_path, args.render, api_format)
+        stem = in_path.stem
+        if args.render == "final":
+            ext = "md" if args.out_format.lower() == "md" else "txt"
+            out_path = Path(f"{stem}.{ext}")
+        else:
+            # raw output uses API format to pick an extension
+            if api_format in {"json", "verbose_json", "diarized_json"}:
+                ext = "json"
+            else:
+                ext = api_format
+            out_path = Path(f"{stem}.{ext}")
 
     # Convert the input to WAV.
     wav_path = convert_to_wav_16k_mono(
@@ -262,59 +363,134 @@ def main() -> None:
         temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
     )
 
-    # Transcribe the audio via the selected engine.
-    try:
-        if engine == "openai":
-            api_result = transcribe_file(
-                wav_path=wav_path,
-                api_key=api_key,
-                model=args.model,
+    # Load speaker map if provided.  Keys in the map are normalised to
+    # match the labels produced by _normalise_speaker_label.
+    speaker_map: dict[str, str] | None = None
+    if args.speaker_map:
+        import json
+        try:
+            with open(Path(args.speaker_map).expanduser(), "r", encoding="utf-8") as f:
+                raw_map = json.load(f)
+            if isinstance(raw_map, dict):
+                from .render import _normalise_speaker_label  # type: ignore
+                speaker_map = {}
+                for k, v in raw_map.items():
+                    speaker_map[_normalise_speaker_label(k)] = str(v)
+        except Exception:
+            # ignore errors; fall back to None
+            speaker_map = None
+
+    # Determine chunking behaviour.  Only applies to offline engines.
+    chunk_seconds: int | None = None
+    if engine != "openai" and args.chunk_seconds and args.chunk_seconds > 0:
+        chunk_seconds = args.chunk_seconds
+    else:
+        chunk_seconds = None
+
+    # Set up caching.  Caching is enabled unless --no-cache is given.
+    use_cache = not args.no_cache
+    cache_dir = Path(args.cache_dir).expanduser().resolve() if args.cache_dir else Path(
+        ".otranscribe_cache"
+    )
+
+    # Compute cache key if caching is enabled.
+    api_result: Any | None = None
+    if use_cache:
+        try:
+            key = compute_cache_key(
+                wav_path,
+                engine=engine,
+                model=args.model if engine == "openai" else (args.whisper_model if engine == "local" else args.faster_model),
                 language=args.language,
-                response_format=api_format,
-                chunking_strategy=args.chunking,
+                api_format=api_format,
+                chunk_seconds=chunk_seconds,
             )
-        elif engine == "local":
-            # Local whisper engine.  Import lazily to avoid pulling in the
-            # dependency unless needed.  If whisper is not installed, the
-            # import will fail and the user will see an informative error.
+            cached = load_cached_result(cache_dir, key)
+            if cached is not None:
+                api_result = cached
+        except Exception:
+            api_result = None
+
+    # If no cached result, perform transcription (with optional chunking)
+    if api_result is None:
+        try:
+            if engine == "openai":
+                api_result = transcribe_file(
+                    wav_path=wav_path,
+                    api_key=api_key,
+                    model=args.model,
+                    language=args.language,
+                    response_format=api_format,
+                    chunking_strategy=args.chunking,
+                )
+            else:
+                # Offline engines: optional chunking
+                def transcribe_single(wpath: Path) -> dict[str, Any]:
+                    if engine == "local":
+                        try:
+                            from .local_stt import transcribe_local  # type: ignore
+                        except Exception as imp_exc:
+                            raise RuntimeError(
+                                "Local engine selected but the 'whisper' package could not be imported."
+                                " Install it via 'pip install openai-whisper' or choose a different engine."
+                            ) from imp_exc
+                        return transcribe_local(
+                            wav_path=wpath,
+                            language=args.language,
+                            model=args.whisper_model,
+                        )
+                    else:
+                        try:
+                            from .faster_stt import transcribe_faster  # type: ignore
+                        except Exception as imp_exc:
+                            raise RuntimeError(
+                                "Faster engine selected but the 'faster-whisper' package could not be imported."
+                                " Install it via 'pip install faster-whisper' or choose a different engine."
+                            ) from imp_exc
+                        return transcribe_faster(
+                            wav_path=wpath,
+                            model_size=args.faster_model,
+                            language=args.language,
+                            device=args.faster_device,
+                            compute_type=args.faster_compute_type,
+                        )
+
+                if chunk_seconds:
+                    # Transcribe each chunk and accumulate segments with offsets
+                    segments: list[dict[str, Any]] = []
+                    offset = 0.0
+                    for idx, chunk_path in enumerate(split_wav_into_chunks(wav_path, chunk_seconds, None)):
+                        result = transcribe_single(chunk_path)
+                        segs = result.get("segments", []) if isinstance(result, dict) else []
+                        for seg in segs:
+                            # copy to avoid mutating original segment
+                            seg_copy = dict(seg)
+                            try:
+                                seg_copy["start"] = float(seg_copy.get("start", 0)) + offset
+                                seg_copy["end"] = float(seg_copy.get("end", 0)) + offset
+                            except Exception:
+                                pass
+                            segments.append(seg_copy)
+                        # update offset by chunk_seconds rather than actual duration
+                        offset += float(chunk_seconds)
+                    # Compose a fake API result
+                    api_result = {"segments": segments, "text": " ".join(seg.get("text", "") for seg in segments)}
+                else:
+                    api_result = transcribe_single(wav_path)
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERROR: failed to transcribe file: {exc}", file=sys.stderr)
+            if not args.keep_temp:
+                try:
+                    wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+            sys.exit(1)
+        # Save to cache
+        if use_cache:
             try:
-                from .local_stt import transcribe_local  # type: ignore
-            except Exception as imp_exc:
-                raise RuntimeError(
-                    "Local engine selected but the 'whisper' package could not be imported."
-                    " Install it via 'pip install openai-whisper' or choose a different engine."
-                ) from imp_exc
-            api_result = transcribe_local(
-                wav_path=wav_path,
-                language=args.language,
-                model=args.whisper_model,
-            )
-        else:
-            # Faster‑whisper engine.  Import lazily to avoid pulling in the
-            # dependency unless needed.  If faster_whisper is not installed,
-            # the import will fail and the user will see an informative error.
-            try:
-                from .faster_stt import transcribe_faster  # type: ignore
-            except Exception as imp_exc:
-                raise RuntimeError(
-                    "Faster engine selected but the 'faster-whisper' package could not be imported."
-                    " Install it via 'pip install faster-whisper' or choose a different engine."
-                ) from imp_exc
-            api_result = transcribe_faster(
-                wav_path=wav_path,
-                model_size=args.faster_model,
-                language=args.language,
-                device=args.faster_device,
-                compute_type=args.faster_compute_type,
-            )
-    except Exception as exc:  # noqa: BLE001
-        print(f"ERROR: failed to transcribe file: {exc}", file=sys.stderr)
-        if not args.keep_temp:
-            try:
-                wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
+                save_cached_result(cache_dir, key, api_result)  # type: ignore[has-type]
             except Exception:
                 pass
-        sys.exit(1)
 
     # Write the output.
     try:
@@ -329,8 +505,14 @@ def main() -> None:
             else:
                 out_path.write_text(str(api_result), encoding="utf-8")
         else:
-            # final: cleaned transcript
-            text = render_final(api_result, every_seconds=args.every)
+            # final: cleaned transcript using the requested format and speaker map
+            text = render_final(
+                api_result,
+                every_seconds=args.every,
+                speaker_map=speaker_map,
+                out_format=args.out_format,
+                md_style=args.md_style,
+            )
             out_path.write_text(text, encoding="utf-8")
         print(f"OK -> {out_path}")
     finally:

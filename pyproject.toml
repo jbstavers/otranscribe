@@ -33,6 +33,13 @@ faster = [
     "faster-whisper>=0.10.0",
 ]
 
+# Development dependencies.  Installing ``otranscribe[dev]`` pulls in
+# tools needed to run the test suite.  Keep this list minimal to
+# avoid bloating end user installations.
+dev = [
+    "pytest>=7.0.0",
+]
+
 [tool.pytest.ini_options]
 addopts = "-ra -q"
 testpaths = ["tests"]

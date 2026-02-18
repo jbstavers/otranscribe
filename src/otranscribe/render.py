@@ -29,8 +29,13 @@ from typing import Any, Iterable, List
 
 # Patterns of filler words to remove.  Use word boundaries to avoid
 # partial matches.  Feel free to add additional Portuguese fillers here.
+# Patterns of filler words to remove.  Use word boundaries to avoid
+# partial matches.  Additional Portuguese fillers (like "um") can be
+# appended here.  The list is deliberately conservative; users can
+# override cleaning behaviour by adjusting the list at runtime if
+# necessary.
 _FILLERS = [
-    r"\b(hã+|hum+|uh+|eh+|tipo|pronto|ok(ay)?|está bem)\b",
+    r"\b(hã+|hum+|uh+|eh+|um+|tipo|pronto|ok(ay)?|está bem)\b",
 ]
 
 
@@ -64,37 +69,190 @@ def _clean_text(t: str) -> str:
     return text
 
 
-def render_final(api_result: Any, *, every_seconds: int = 30) -> str:
-    """Render a diarised OpenAI response into a cleaned transcript.
+def _normalise_speaker_label(label: Any) -> str:
+    """Normalise OpenAI diarisation labels to a canonical form.
 
-    The API response must be a dict containing a ``segments`` list.  Each
-    element of the list should be a dict with at least ``start``,
-    ``text`` and ``speaker`` keys.  ``speaker`` values like
-    ``SPEAKER_00`` are normalised to ``Speaker 0`` etc.
+    The OpenAI API returns speaker labels like ``SPEAKER_00``.  This
+    helper converts those into ``Speaker 0``.  For any other string
+    values it returns the value unchanged.  Non‑string values are
+    stringified.
+    """
+    # Ensure we have a string representation
+    s = str(label)
+    if s.upper().startswith("SPEAKER_"):
+        try:
+            idx = int(s.split("_")[1])
+            return f"Speaker {idx}"
+        except Exception:
+            # Fall back to replacing the prefix
+            return s.replace("SPEAKER_", "Speaker ")
+    return s
 
-    The output groups contiguous segments by speaker and into buckets of
-    ``every_seconds`` seconds.  A new line starts when either the
-    speaker changes or the bucket boundary is crossed.  Each line is
-    prefixed with a timestamp in the format ``[HH:MM:SS]``.
+
+def _apply_speaker_map(label: str, speaker_map: Optional[dict[str, str]]) -> str:
+    """Apply a user provided speaker map to a label.
+
+    If ``speaker_map`` is not ``None`` and contains the key ``label``,
+    return the mapped value.  Otherwise return ``label`` unchanged.
+    """
+    if speaker_map and label in speaker_map:
+        return speaker_map[label]
+    return label
+
+
+def _render_lines_txt(
+    segments: Iterable[dict[str, Any]],
+    *,
+    every_seconds: int,
+    speaker_map: Optional[dict[str, str]] = None,
+) -> list[str]:
+    """Render diarised segments as plain text lines.
+
+    Segments are grouped into buckets of ``every_seconds`` seconds and
+    by speaker.  When either the bucket or speaker changes a new line
+    is started.  Each line is prefixed with ``[HH:MM:SS] <speaker>:``.
+    """
+    lines: list[str] = []
+    current_bucket: int | None = None
+    last_speaker: str | None = None
+    for seg in segments:
+        try:
+            start = float(seg.get("start", 0))
+        except Exception:
+            start = 0.0
+        text = _clean_text(seg.get("text", ""))
+        if not text:
+            continue
+        speaker_raw = seg.get("speaker", "Speaker ?")
+        speaker = _normalise_speaker_label(speaker_raw)
+        speaker = _apply_speaker_map(speaker, speaker_map)
+        bucket = int(math.floor(start / every_seconds) * every_seconds)
+        new_block = (
+            current_bucket is None or bucket != current_bucket or speaker != last_speaker
+        )
+        if new_block:
+            lines.append(f"[{_ts(bucket)}] {speaker}: {text}")
+            current_bucket = bucket
+            last_speaker = speaker
+        else:
+            lines[-1] += " " + text
+    return lines
+
+
+def _render_lines_md(
+    segments: Iterable[dict[str, Any]],
+    *,
+    every_seconds: int,
+    speaker_map: Optional[dict[str, str]] = None,
+    style: str = "simple",
+) -> list[str]:
+    """Render diarised segments as Markdown lines.
+
+    Two styles are supported:
+
+    - ``simple``: each utterance becomes a bullet point with a bold
+      timestamp and speaker name, followed by the cleaned text.
+    - ``meeting``: each utterance starts a new heading (level 3) with
+      the timestamp and speaker on the same line, followed by the text
+      in a new paragraph.  This format is useful for meeting notes
+      where each intervention is clearly separated.
+
+    Parameters
+    ----------
+    segments: Iterable[dict[str, Any]]
+        List of diarised segments from the API.
+    every_seconds: int
+        Bucket duration for grouping.
+    speaker_map: Optional[dict[str, str]], optional
+        Optional mapping from internal labels to user supplied names.
+    style: str, default "simple"
+        Rendering style (``simple`` or ``meeting``).
+    """
+    lines: list[str] = []
+    current_bucket: int | None = None
+    last_speaker: str | None = None
+    for seg in segments:
+        try:
+            start = float(seg.get("start", 0))
+        except Exception:
+            start = 0.0
+        text = _clean_text(seg.get("text", ""))
+        if not text:
+            continue
+        speaker_raw = seg.get("speaker", "Speaker ?")
+        speaker = _normalise_speaker_label(speaker_raw)
+        speaker = _apply_speaker_map(speaker, speaker_map)
+        bucket = int(math.floor(start / every_seconds) * every_seconds)
+        new_block = (
+            current_bucket is None or bucket != current_bucket or speaker != last_speaker
+        )
+        if new_block:
+            if style == "meeting":
+                # Heading per utterance
+                lines.append(f"### [{_ts(bucket)}] {speaker}")
+                lines.append("")
+                lines.append(text)
+            else:
+                # simple bullet list
+                lines.append(f"- **[{_ts(bucket)}] {speaker}:** {text}")
+            current_bucket = bucket
+            last_speaker = speaker
+        else:
+            # continuation of previous block
+            if style == "meeting":
+                lines[-1] += " " + text
+            else:
+                lines[-1] += " " + text
+    return lines
+
+
+def render_final(
+    api_result: Any,
+    *,
+    every_seconds: int = 30,
+    speaker_map: Optional[dict[str, str]] = None,
+    out_format: str = "txt",
+    md_style: str = "simple",
+) -> str:
+    """Render a diarised transcript into cleaned text or Markdown.
+
+    The input ``api_result`` should be a mapping containing a ``segments``
+    list.  Each segment is expected to have ``start``, ``text`` and
+    ``speaker`` fields.  The ``speaker`` labels are normalised and may
+    be remapped via a user provided mapping.  Utterances are grouped
+    into buckets of ``every_seconds`` seconds and broken into new lines
+    when the speaker changes or the bucket boundary is crossed.
 
     Parameters
     ----------
     api_result: Any
-        Parsed JSON result from the API.  Should contain a ``segments``
-        key if diarised.
+        Parsed JSON result from the API or local engine.  If it does
+        not contain ``segments`` then the ``text`` field is cleaned
+        and returned.
     every_seconds: int, default 30
-        Bucket size for timestamp insertion.  Changing this affects
-        how often timestamps are emitted.
+        Duration of each bucket for timestamping.  Lower values
+        produce more frequent timestamps.
+    speaker_map: Optional[dict[str, str]], optional
+        Mapping from normalised speaker labels (e.g. ``Speaker 0``) to
+        user provided names.  Keys must match the labels produced by
+        :func:`_normalise_speaker_label`.
+    out_format: str, default "txt"
+        Output format: ``txt`` returns plain text lines; ``md``
+        returns Markdown lines using the style defined by
+        ``md_style``.
+    md_style: str, default "simple"
+        Markdown style used when ``out_format`` is ``md``.  ``simple``
+        produces a bullet list; ``meeting`` produces heading‑style
+        meeting notes.
 
     Returns
     -------
     str
-        A multi‑line transcript.  Each line begins with a timestamp and
-        a normalised speaker label followed by cleaned dialogue.
+        Rendered transcript with a trailing newline.  If there are no
+        segments the cleaned ``text`` field is returned.
     """
+    # If the API returned plain text or some other type, return it unchanged.
     if not isinstance(api_result, dict):
-        # If the API returned plain text or some other type, return it
-        # unchanged.
         return str(api_result)
 
     segments = api_result.get("segments")
@@ -102,41 +260,19 @@ def render_final(api_result: Any, *, every_seconds: int = 30) -> str:
         text = api_result.get("text", "")
         return _clean_text(text) + ("\n" if text else "")
 
-    lines: List[str] = []
-    current_bucket: int | None = None
-    last_speaker: str | None = None
-
-    for seg in segments:
-        try:
-            start = float(seg.get("start", 0))
-        except Exception:
-            start = 0.0
-        raw_text = seg.get("text", "")
-        cleaned = _clean_text(raw_text)
-        if not cleaned:
-            continue
-        speaker = seg.get("speaker", "Speaker ?")
-        # Normalise OpenAI speaker labels (e.g. SPEAKER_00 -> Speaker 0)
-        if isinstance(speaker, str) and speaker.upper().startswith("SPEAKER_"):
-            try:
-                idx = int(speaker.split("_")[1])
-                speaker = f"Speaker {idx}"
-            except Exception:
-                speaker = speaker.replace("SPEAKER_", "Speaker ")
-        else:
-            # Fallback if unknown type.
-            speaker = str(speaker)
-        bucket = int(math.floor(start / every_seconds) * every_seconds)
-        new_block = (
-            current_bucket is None
-            or bucket != current_bucket
-            or speaker != last_speaker
+    # Choose renderer based on output format
+    out_format = out_format.lower()
+    if out_format == "md":
+        lines = _render_lines_md(
+            segments,
+            every_seconds=every_seconds,
+            speaker_map=speaker_map,
+            style=md_style,
         )
-        if new_block:
-            lines.append(f"[{_ts(bucket)}] {speaker}: {cleaned}")
-            current_bucket = bucket
-            last_speaker = speaker
-        else:
-            lines[-1] += " " + cleaned
-
+    else:
+        lines = _render_lines_txt(
+            segments,
+            every_seconds=every_seconds,
+            speaker_map=speaker_map,
+        )
     return "\n".join(lines).rstrip() + "\n"
