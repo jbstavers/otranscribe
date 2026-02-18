@@ -243,6 +243,8 @@ If `otranscribe` is not found, make sure your virtualenv is active (`source .ven
 or install from the repo root with `pip install -e .`.
 ```
 
+otranscribe doctor exits non-zero if required deps for a selected engine are missing.
+
 Contributions are welcome.  Please open issues or pull requests on the
 project repository.
 
