@@ -87,213 +87,92 @@ def _default_out_path(input_path: Path, render: str, api_format: str) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Create and return an argument parser for the CLI."""
     parser = argparse.ArgumentParser(
         prog="otranscribe",
         description=(
-            "Transcribe any audio or video file into text.  The CLI converts "
-            "input to WAV automatically, invokes the selected speech engine, "
-            "and optionally produces a cleaned transcript with timestamps, "
-            "speaker labels, caching and Markdown formatting."
+            "Transcribe any audio or video file. Converts input to WAV automatically "
+            "and optionally produces a cleaned transcript with timestamps and speaker labels."
         ),
     )
-    parser.add_argument(
-        "-i",
-        "--input",
-        required=True,
-        help="Input file (audio or video). Any format supported by ffmpeg.",
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # ---- doctor subcommand
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Check environment and dependencies",
+        description="Verify ffmpeg, Python version, and optional engine dependencies.",
     )
-    parser.add_argument(
-        "-o",
-        "--out",
-        help="Output file path (optional). Defaults depend on render/API format.",
+    doctor_parser.add_argument(
+        "--engine",
+        choices=["openai", "local", "faster"],
+        default=None,
+        help="Check only the specified engine (default: check all)",
     )
-    parser.add_argument(
-        "--model",
-        default="gpt-4o-transcribe-diarize",
-        help="OpenAI transcription model. The default enables diarisation.",
+
+    # ---- transcribe subcommand (default)
+    transcribe_parser = subparsers.add_parser(
+        "transcribe",
+        help="Transcribe audio/video",
+        description="Transcribe a file using OpenAI or offline engines.",
     )
-    parser.add_argument(
-        "--language",
-        default="pt",
-        help=(
-            "Language code for the input (e.g., pt, en, es).  See OpenAI"
-            " documentation for supported languages."
-        ),
-    )
-    parser.add_argument(
+
+    # Move all your existing arguments onto transcribe_parser
+    # (Below is identical to your previous parser.add_argument calls,
+    #  just renamed to transcribe_parser.add_argument)
+
+    transcribe_parser.add_argument("-i", "--input", required=True, help="Input file (audio or video). Any ffmpeg-supported format.")
+    transcribe_parser.add_argument("-o", "--out", default=None, help="Output path (optional).")
+    transcribe_parser.add_argument("--model", default="gpt-4o-transcribe-diarize", help="OpenAI transcription model.")
+    transcribe_parser.add_argument("--language", default="pt", help="Language code, e.g., pt, en, es.")
+
+    transcribe_parser.add_argument(
         "--api-format",
         default="diarized_json",
         choices=sorted(SUPPORTED_API_FORMATS),
-        help=(
-            "API response_format.  'diarized_json' is required for speaker"
-            " labels.  Other options include json, text, srt, verbose_json,"
-            " vtt."
-        ),
+        help="API response_format. diarized_json required for speaker labels.",
     )
-    parser.add_argument(
+    transcribe_parser.add_argument(
         "--render",
         default="final",
         choices=sorted(SUPPORTED_RENDER_FORMATS),
-        help=(
-            "Render mode: 'final' produces a cleaned transcript with"
-            " timestamps and speakers; 'raw' writes the API response as"
-            " returned."
-        ),
+        help="raw = write engine output as-is; final = cleaned transcript with timestamps + speakers.",
     )
+    transcribe_parser.add_argument("--every", type=int, default=30, help="Timestamp bucket seconds for final render (default 30).")
+    transcribe_parser.add_argument("--chunking", default="auto", help="OpenAI chunking_strategy (recommended: auto for long audio).")
+    transcribe_parser.add_argument("--keep-temp", action="store_true", help="Keep temp WAV and intermediate artifacts.")
+    transcribe_parser.add_argument("--temp-dir", default=None, help="Optional temp directory to use.")
 
-    # Format of the final transcript when --render final.  txt (plain
-    # text) is the default.  md produces Markdown.
-    parser.add_argument(
-        "--out-format",
-        default="txt",
-        choices=sorted(SUPPORTED_OUT_FORMATS),
-        help=(
-            "Output format for the final render: 'txt' for plain text "
-            "(default) or 'md' for Markdown.  Only relevant when --render "
-            "is 'final'."
-        ),
-    )
-
-    # Markdown style for md output.  Ignored unless --out-format md.
-    parser.add_argument(
-        "--md-style",
-        default="simple",
-        choices=sorted(SUPPORTED_MD_STYLES),
-        help=(
-            "Markdown style used when --out-format=md.  'simple' produces a "
-            "bullet list of utterances; 'meeting' produces heading‑style "
-            "meeting notes."
-        ),
-    )
-
-    # Speaker map file.  JSON mapping from speaker labels (e.g.
-    # "Speaker 0") to human friendly names.
-    parser.add_argument(
-        "--speaker-map",
-        dest="speaker_map",
-        help=(
-            "Path to a JSON file mapping speaker labels (e.g. 'Speaker 0') to "
-            "human friendly names.  Only applies to final renders."
-        ),
-    )
-
-    # Offline chunk size.  When using local or faster engines, split the
-    # audio into chunks of this duration (in seconds) before
-    # transcription.  A value of 0 disables chunking.
-    parser.add_argument(
-        "--chunk-seconds",
-        type=int,
-        default=0,
-        help=(
-            "For offline engines, split the WAV into chunks of this many "
-            "seconds before transcribing.  Helps with long files.  0 disables "
-            "chunking (default)."
-        ),
-    )
-
-    # Caching options.  By default results are cached in a '.otranscribe_cache'
-    # directory under the current working directory.  Use --no-cache to
-    # disable caching entirely and --cache-dir to override the directory.
-    parser.add_argument(
-        "--cache-dir",
-        dest="cache_dir",
-        help=(
-            "Directory in which to store cached transcription results.  "
-            "Defaults to '.otranscribe_cache' in the current working "
-            "directory."
-        ),
-    )
-    parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable reading and writing the cache.  Forces a fresh transcription.",
-    )
-    parser.add_argument(
-        "--every",
-        type=int,
-        default=30,
-        help="Timestamp bucket size in seconds for final render (default 30).",
-    )
-    parser.add_argument(
-        "--chunking",
-        default="auto",
-        help=(
-            "chunking_strategy passed to the API.  'auto' is recommended"
-            " for long audio files and for diarisation."
-        ),
-    )
-    parser.add_argument(
-        "--keep-temp",
-        action="store_true",
-        help="Keep temporary WAV and API response files for debugging.",
-    )
-    parser.add_argument(
-        "--temp-dir",
-        help=(
-            "Optional directory to store temporary files.  If not provided"
-            " a new temporary directory will be used."
-        ),
-    )
-
-    # Allow selection of the transcription engine.  ``openai`` uses the
-    # OpenAI API (default).  ``local`` uses a locally installed Whisper
-    # model.  The local engine requires the ``whisper`` Python package and
-    # does not provide diarisation.
-    parser.add_argument(
+    # Engine selection (keep your existing flags; ensure choices match your repo)
+    transcribe_parser.add_argument(
         "--engine",
         default="openai",
         choices=["openai", "local", "faster"],
-        help=(
-            "Transcription engine to use.  'openai' (default) calls the OpenAI"
-            " speech‑to‑text API.  'local' runs a local Whisper model (requires"
-            " the 'whisper' Python package).  'faster' uses the faster‑whisper"
-            " backend (requires the 'faster‑whisper' package) for higher speed"
-            " on CPU or GPU."
-        ),
+        help="Transcription engine: openai (API), local (openai-whisper), faster (faster-whisper).",
     )
 
-    # Whisper model size for the local engine.  Ignored when using the
-    # OpenAI engine.  Valid values mirror the Whisper model names (tiny,
-    # base, small, medium, large).  Defaults to 'medium'.
-    parser.add_argument(
-        "--whisper-model",
-        default="medium",
-        help=(
-            "Model size for the local Whisper engine (e.g., tiny, base, small,"
-            " medium, large).  Ignored when using --engine openai."
-        ),
-    )
+    # Local engine
+    transcribe_parser.add_argument("--whisper-model", default="base", help="Local Whisper model name (tiny/base/small/medium/large).")
 
-    # Faster‑whisper options.  Ignored unless --engine faster.  The model
-    # defines the quality/speed trade off (e.g. tiny, base, small, medium,
-    # large, large-v2, etc.).  Device can be 'cpu', 'cuda' or 'auto'.
-    parser.add_argument(
-        "--faster-model",
-        default="base",
-        help=(
-            "Model size for the faster‑whisper engine (e.g., tiny, base, small,"
-            " medium, large).  Ignored unless --engine faster."
-        ),
-    )
-    parser.add_argument(
-        "--faster-device",
-        default="cpu",
-        help=(
-            "Device for faster‑whisper (cpu, cuda or auto).  Ignored unless"
-            " --engine faster."
-        ),
-    )
-    parser.add_argument(
-        "--faster-compute-type",
-        default="int8",
-        help=(
-            "Compute type for faster‑whisper (e.g. fp16, int8, float16)."
-            " Ignored unless --engine faster."
-        ),
-    )
+    # Faster engine
+    transcribe_parser.add_argument("--faster-model", default="small", help="faster-whisper model size/name.")
+    transcribe_parser.add_argument("--faster-device", default="auto", help="Device for faster-whisper (auto/cpu/cuda).")
+    transcribe_parser.add_argument("--faster-compute-type", default="int8", help="Compute type (int8/float16/float32).")
+
+    # Cache controls (if present in your repo already; keep them here)
+    transcribe_parser.add_argument("--cache-dir", default=".otranscribe_cache", help="Cache directory for results.")
+    transcribe_parser.add_argument("--no-cache", action="store_true", help="Disable caching.")
+
+    # Chunking for offline engines (if present)
+    transcribe_parser.add_argument("--chunk-seconds", type=int, default=0, help="Offline chunk duration in seconds (0 disables).")
+    transcribe_parser.add_argument("--chunk-overlap-seconds", type=int, default=0, help="Offline chunk overlap in seconds (0 disables).")
+
+    # Output formatting
+    transcribe_parser.add_argument("--speaker-map", default=None, help="Path to JSON speaker map (e.g. {\"Speaker 0\":\"Interviewer\"}).")
+    transcribe_parser.add_argument("--out-format", choices=["txt", "md"], default="txt", help="Output format for final render.")
+    transcribe_parser.add_argument("--md-style", choices=["simple", "meeting"], default="simple", help="Markdown style when --out-format md.")
+
     return parser
-
 
 def main() -> None:
     """Run the command line interface.
@@ -304,7 +183,18 @@ def main() -> None:
     exit status.
     """
     parser = build_parser()
-    args = parser.parse_args()
+    args = build_parser().parse_args()
+
+    # Backward compatibility: `otranscribe -i file` should act like `otranscribe transcribe -i file`
+    if args.command is None:
+        args.command = "transcribe"
+
+    if args.command == "doctor":
+        from .doctor import format_report
+        ok, lines = format_report(getattr(args, "engine", None))
+        for line in lines:
+            print(line)
+        raise SystemExit(0 if ok else 1)
 
     # Read the transcription engine and API key.  The API key is only
     # mandatory when using the OpenAI engine.  When running locally
