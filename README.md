@@ -209,15 +209,22 @@ otranscribe -i call.m4a --every 15
 
 ## Development
 
-This repository includes a minimal test suite using pytest. After
-cloning run:
+Quickstart (macOS/Linux) with Make:
 
+```bash
+make install
+make test
+make doctor
+```
+
+Quickstart without Make:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -e ".[dev]"
 pytest
+otranscribe doctor
 ```
 
 ## Troubleshooting
@@ -229,6 +236,11 @@ otranscribe doctor
 otranscribe doctor --engine openai
 otranscribe doctor --engine local
 otranscribe doctor --engine faster
+```
+
+```bash
+If `otranscribe` is not found, make sure your virtualenv is active (`source .venv/bin/activate`)
+or install from the repo root with `pip install -e .`.
 ```
 
 Contributions are welcome.  Please open issues or pull requests on the
