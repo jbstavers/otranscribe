@@ -1,45 +1,46 @@
-# Future Features for `otranscribe`
+# Future Features
 
-This document outlines enhancements and ideas that are not yet
-implemented but could be added in future releases.  Feel free to
-contribute or discuss any of these on the project issue tracker.
+This document tracks ideas and improvements for `otranscribe`.
+Items may move between sections as they get implemented.
 
-## Diarisation without the OpenAI API
+## Done
 
-Currently only the OpenAI engine provides speaker labels.  A natural
-extension is to integrate a local diarisation model (e.g. via
-`pyannote.audio`) so that offline transcriptions can also assign
-speaker identities.  This would allow fully offline workflows with
-speaker separation, albeit with additional dependencies and higher
-resource usage.
+- [x] **Cache / resume** (impact: huge, effort: medium)  
+  Persist transcription results keyed by input + engine/model parameters so reruns are instant.
 
-## Resume or partial caching of long files
+- [x] **Local chunking** (impact: huge for long audio, effort: medium)  
+  Chunk long WAV files for offline engines and merge segments back with correct time offsets.
 
-The existing cache stores complete transcriptions keyed by input
-options.  Another optimisation is to cache partial results during
-chunked offline transcription so that interrupted runs can resume
-without repeating work.  This could involve storing per‑chunk
-transcriptions and recombining them if the same file is processed
-again.
+- [x] **Speaker map + Markdown output** (impact: high, effort: low)  
+  Allow mapping `Speaker 0` → `Interviewer` etc. and render cleaned output as `.md` with styles.
 
-## Alternative Markdown formats
+## Next Up (Recommended)
 
-The current Markdown renderer supports a simple bullet list and a
-meeting‑style heading format.  Additional styles could be provided,
-such as collapsible summaries, tables grouping utterances by speaker,
-or templates for popular note‑taking tools.
+- [ ] **CI pipeline (GitHub Actions)**  
+  Run `pytest` + basic install/import checks on every PR to prevent packaging/import regressions.
 
-## Richer post‑processing
+- [ ] **Packaging + release pipeline**  
+  Automated versioning + publishing to PyPI (when you decide to release).
 
-Beyond removing simple filler words, some users may want more
-sophisticated editing: normalising numbers, correcting common
-disfluencies, grouping questions and answers, or generating a summary
-section with action items.  These operations should remain optional
-and be clearly separated from the faithful transcript.
+- [ ] **Better diarisation locally**  
+  Optional integration with a diarisation model (e.g., pyannote) to label speakers offline.
 
-## Progress reporting and interactive UI
+## Ideas / Nice-to-haves
 
-For very long files it can be useful to see progress or receive
-intermediate output while transcription is running.  A progress bar
-could be printed to the console, or a simple GUI could be offered as
-an optional frontend.
+- [ ] **Progress + ETA for offline transcription**  
+  Show progress per chunk/model inference so long runs feel responsive.
+
+- [ ] **More output formats**  
+  Add `--out-format docx` / `--out-format srt` post-processing styles beyond raw engine formats.
+
+- [ ] **Config file support**  
+  Load defaults from `.otranscribe.toml` (engine/model/language/render settings).
+
+- [ ] **Speaker naming UX**  
+  CLI prompts or interactive mode to rename speakers after first diarised run.
+
+- [ ] **Better merge logic for offline chunking**  
+  Smarter overlap handling (dedupe repeated text near chunk boundaries).
+
+- [ ] **Performance guide**  
+  A short doc with recommended models/settings per CPU/GPU, plus memory expectations.
