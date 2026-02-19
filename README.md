@@ -25,16 +25,16 @@ See [INSTALLATION.md](./INSTALLATION.md) for detailed setup including offline en
 
 ## Documentation
 
-- [**INSTALLATION.md**](./INSTALLATION.md) – Install, uninstall, and API key setup
-- [**USAGE.md**](./USAGE.md) – How to use `otranscribe`, examples, and common workflows
-- [**TROUBLESHOOTING.md**](./TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
-- [**DEVELOPMENT.md**](./DEVELOPMENT.md) – Development setup, testing, formatting, and linting
-- [**CONTRIBUTING.md**](./CONTRIBUTING.md) – PR workflow and contribution guidelines
-- [**PUBLISHING.md**](./PUBLISHING.md) – Release workflow and PyPI publishing
+- [**INSTALLATION.md**](./docs/INSTALLATION.md) – Install, uninstall, and API key setup
+- [**USAGE.md**](./docs/USAGE.md) – How to use `otranscribe`, examples, and common workflows
+- [**TROUBLESHOOTING.md**](./docs/TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
+- [**DEVELOPMENT.md**](./docs/DEVELOPMENT.md) – Development setup, testing, formatting, and linting
+- [**CONTRIBUTING.md**](./docs/CONTRIBUTING.md) – PR workflow and contribution guidelines
+- [**PUBLISHING.md**](./docs/PUBLISHING.md) – Release workflow and PyPI publishing
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for PR workflow and [DEVELOPMENT.md](./DEVELOPMENT.md) for setup instructions.
+Contributions are welcome. See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for PR workflow and [DEVELOPMENT.md](./docs/DEVELOPMENT.md) for setup instructions.
 
 ## License
 
