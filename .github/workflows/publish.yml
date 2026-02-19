@@ -1,5 +1,4 @@
-# .github/workflows/publish.yml
-name: Publish to PyPI
+name: Publish
 
 on:
   push:
@@ -8,12 +7,11 @@ on:
 
 permissions:
   contents: read
-  id-token: write  # required for Trusted Publishing (OIDC)
+  id-token: write
 
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,24 +26,24 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
+      - name: Clean build artifacts
+        run: rm -rf dist build *.egg-info
+
       - name: Build sdist + wheel
-        run: |
-          python -m build
+        run: python -m build
 
       - name: Twine check
-        run: |
-          python -m twine check dist/*
+        run: python -m twine check dist/*
 
-      # ---- Publish to PyPI (Trusted Publishing)
-      # Configure this repository as a "Trusted Publisher" in PyPI first.
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist
-
-      # Publish to TestPyPI (uncomment if you want)
-      - name: Publish to TestPyPI
+      - name: Publish to TestPyPI (rc tags only)
+        if: contains(github.ref_name, 'rc')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist
+
+      - name: Publish to PyPI (non-rc tags)
+        if: "!contains(github.ref_name, 'rc')"
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
           packages-dir: dist
