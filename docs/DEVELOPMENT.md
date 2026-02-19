@@ -141,4 +141,4 @@ pre-commit run --all-files
 pytest
 ```
 
-Then open a pull request on the project repository. See [CONTRIBUTING.md](./CONTRIBUTING.md) for PR workflow and branch naming.
+Then open a pull request on the project repository. See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for PR workflow and branch naming.

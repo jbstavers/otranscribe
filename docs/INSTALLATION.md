@@ -131,6 +131,6 @@ rm -rf /path/to/otranscribe
 
 ## Development
 
-For development setup, testing, formatting, linting, and pre-commit configuration, see [DEVELOPMENT.md](./DEVELOPMENT.md).
+For development setup, testing, formatting, linting, and pre-commit configuration, see [DEVELOPMENT.md](./docs/DEVELOPMENT.md).
 
-To contribute, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+To contribute, see [CONTRIBUTING.md](./docs/CONTRIBUTING.md).
