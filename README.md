@@ -25,13 +25,16 @@ See [INSTALLATION.md](./INSTALLATION.md) for detailed setup including offline en
 
 ## Documentation
 
-- [**INSTALLATION.md**](./docs/INSTALLATION.md) – Install, uninstall, and development setup (including pre-commit hooks and code style)
-- [**USAGE.md**](./docs/USAGE.md) – How to use `otranscribe`, examples, and common workflows
-- [**TROUBLESHOOTING.md**](./docs/TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
+- [**INSTALLATION.md**](./INSTALLATION.md) – Install, uninstall, and API key setup
+- [**USAGE.md**](./USAGE.md) – How to use `otranscribe`, examples, and common workflows
+- [**TROUBLESHOOTING.md**](./TROUBLESHOOTING.md) – Common errors, diagnostics, and solutions
+- [**DEVELOPMENT.md**](./DEVELOPMENT.md) – Development setup, testing, formatting, and linting
+- [**CONTRIBUTING.md**](./CONTRIBUTING.md) – PR workflow and contribution guidelines
+- [**PUBLISHING.md**](./PUBLISHING.md) – Release workflow and PyPI publishing
 
 ## Contributing
 
-Contributions are welcome. Please open issues or pull requests on the project repository. See [INSTALLATION.md](./INSTALLATION.md#development-setup) for development environment setup.
+Contributions are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for PR workflow and [DEVELOPMENT.md](./DEVELOPMENT.md) for setup instructions.
 
 ## License
 
