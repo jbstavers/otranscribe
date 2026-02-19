@@ -36,6 +36,10 @@ See [INSTALLATION.md](./docs/INSTALLATION.md) for detailed setup including offli
 
 Contributions are welcome. See [CONTRIBUTING.md](./docs/CONTRIBUTING.md) for PR workflow and [DEVELOPMENT.md](./docs/DEVELOPMENT.md) for setup instructions.
 
+## Maintenance
+
+This project is maintained by Ines. For governance, branch protection rules, and release workflow, see [MAINTAINERS.md](./docs/MAINTAINERS.md).
+
 ## License
 
 Released under the terms of the MIT license. See `LICENSE` for details.
