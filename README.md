@@ -10,7 +10,7 @@ export OPENAI_API_KEY="sk-..."
 otranscribe -i audio.mp3
 ```
 
-See [INSTALLATION.md](./INSTALLATION.md) for detailed setup including offline engines.
+See [INSTALLATION.md](./docs/INSTALLATION.md) for detailed setup including offline engines.
 
 ## Features
 
