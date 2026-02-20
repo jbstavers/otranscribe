@@ -75,7 +75,7 @@ pytest
 
 ## Demo 5 — Engine Comparison
 
-<img src="demos/demo-5.gif" alt="Demo: Engine Comparison
+<img src="../demos/demo-5.gif" alt="Demo: Engine Comparison
 " width="500">
 
 ```bash
@@ -96,7 +96,7 @@ otranscribe transcribe -i sample.mp3 --engine faster --faster-model tiny
 
 ## Demo 6 — Doctor Diagnostics
 
-<img src="demos/demo-6.gif" alt="Demo: Doctor Diagnostics" width="500">
+<img src="../demos/demo-6.gif" alt="Demo: Doctor Diagnostics" width="500">
 
 
 ```bash
