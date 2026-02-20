@@ -45,11 +45,11 @@ See [CLI.md](./docs/CLI.md) for all flags and options.
 
 ### Clone & Install
 
-<img src="demos/demo-1.gif" alt="Demo: Installing otranscribe" width="500">
+<img src="demos/demo-1.gif" alt="Demo: Installing otranscribe" width="400">
 
 ### Dev Setup & Tests
 
-<img src="demos/demo-4.gif" alt="Demo: Dev Setup & Tests" width="500">
+<img src="demos/demo-4.gif" alt="Demo: Dev Setup & Tests" width="400">
 
 > See [DEMOS.md](./docs/DEMOS.md) for more demos including Quick Start, Engine Comparison, and Doctor Diagnostics.
 

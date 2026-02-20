@@ -4,7 +4,7 @@ Visual demos and command references for common `otranscribe` workflows.
 
 ## Demo 1 — Clone & Install
 
-<img src="../demos/demo-1.gif" alt="Demo: Clone & Install" width="600">
+<img src="../demos/demo-1.gif" alt="Demo: Clone & Install" width="400">
 
 ```bash
 git clone https://github.com/ineslino/otranscribe.git
@@ -60,7 +60,7 @@ otranscribe transcribe -i sample.mp3 --engine faster --faster-model tiny
 
 ## Demo 4 — Dev Setup & Tests
 
-<img src="../demos/demo-4.gif" alt="Demo: Dev Setup & Tests" width="600">
+<img src="../demos/demo-4.gif" alt="Demo: Dev Setup & Tests" width="400">
 
 ```bash
 # (continuing from a clone with venv active)
@@ -76,7 +76,7 @@ pytest
 ## Demo 5 — Engine Comparison
 
 <img src="../demos/demo-5.gif" alt="Demo: Engine Comparison
-" width="500">
+" width="400">
 
 ```bash
 # OpenAI (requires: OPENAI_API_KEY)
@@ -96,7 +96,7 @@ otranscribe transcribe -i sample.mp3 --engine faster --faster-model tiny
 
 ## Demo 6 — Doctor Diagnostics
 
-<img src="../demos/demo-6.gif" alt="Demo: Doctor Diagnostics" width="500">
+<img src="../demos/demo-6.gif" alt="Demo: Doctor Diagnostics" width="400">
 
 
 ```bash
