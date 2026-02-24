@@ -146,6 +146,36 @@ def audio_duration_seconds(path: Path) -> float:
     return float(result.stdout.strip())
 
 
+def trim_audio(
+    input_path: Path,
+    duration: int,
+    temp_dir: Path | None = None,
+) -> Path:
+    """Extract the first ``duration`` seconds of audio, keeping the original format.
+
+    Returns the path to the trimmed file.
+    """
+    workdir = temp_dir or Path(tempfile.mkdtemp(prefix="otranscribe-trim-"))
+    workdir.mkdir(parents=True, exist_ok=True)
+    ext = input_path.suffix
+    out_path = workdir / f"trimmed{ext}"
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-t",
+        str(duration),
+        "-c",
+        "copy",
+        str(out_path),
+    ]
+    subprocess.run(cmd, check=True)
+    return out_path
+
+
 def split_audio_into_chunks(
     input_path: Path,
     chunk_seconds: int,

@@ -173,6 +173,11 @@ def transcribe_chunked(
                 seg_copy["end"] = float(seg_copy.get("end", 0)) + offset
             except (TypeError, ValueError):
                 pass
+            # Prefix speaker labels with chunk index so that "Speaker 0"
+            # in different chunks stays distinct after merging.
+            raw_speaker = seg_copy.get("speaker")
+            if raw_speaker is not None:
+                seg_copy["speaker"] = f"Chunk {idx} {raw_speaker}"
             all_segments.append(seg_copy)
 
         offset += audio_duration_seconds(chunk_path)

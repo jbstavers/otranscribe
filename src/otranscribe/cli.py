@@ -40,6 +40,7 @@ from .ffmpeg_utils import (
     ensure_ffmpeg,
     split_audio_into_chunks,
     split_wav_into_chunks,
+    trim_audio,
 )
 from .openai_stt import transcribe_chunked, transcribe_file
 from .render import render_final
@@ -260,51 +261,72 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_sample_workflow(
-    api_result: Any,
+    chunk_results: list[tuple[int, Any]],
     args: argparse.Namespace,
     in_path: Path,
     sample_duration: int,
 ) -> None:
     """Interactive sample workflow for speaker identification.
 
-    Displays speaker excerpts from the sample transcription, prompts the
-    user to label each speaker, writes a speaker map JSON file, and
-    optionally kicks off the full transcription.
+    Displays speaker excerpts from per-chunk sample transcriptions,
+    prompts the user to label each speaker, writes a speaker map JSON
+    file, and optionally kicks off the full transcription.
+
+    Parameters
+    ----------
+    chunk_results : list[tuple[int, Any]]
+        List of ``(chunk_index, api_result)`` tuples.  ``chunk_index``
+        is 1-based.  Speaker labels in the API results should already
+        be prefixed with ``Chunk N`` by ``transcribe_chunked``, but
+        for single-chunk (small file) calls this function handles the
+        prefixing itself.
     """
     from .render import _normalise_speaker_label, _clean_text  # type: ignore
 
-    segments = api_result.get("segments", []) if isinstance(api_result, dict) else []
-    if not segments:
-        print("No speaker segments found in sample.", file=sys.stderr)
-        return
+    # Collect excerpts per speaker, grouped by chunk
+    # Structure: { chunk_idx: { speaker_label: [excerpts] } }
+    chunks_excerpts: dict[int, dict[str, list[str]]] = {}
 
-    # Collect excerpts per speaker (up to 3 per speaker)
-    speaker_excerpts: dict[str, list[str]] = {}
-    for seg in segments:
-        speaker_raw = seg.get("speaker", "Speaker ?")
-        speaker = _normalise_speaker_label(speaker_raw)
-        text = _clean_text(seg.get("text", ""))
-        if not text:
-            continue
-        if speaker not in speaker_excerpts:
-            speaker_excerpts[speaker] = []
-        speaker_excerpts[speaker].append(text)
+    for chunk_idx, api_result in chunk_results:
+        segments = api_result.get("segments", []) if isinstance(api_result, dict) else []
+        chunk_speakers: dict[str, list[str]] = {}
+        for seg in segments:
+            speaker_raw = seg.get("speaker", "Speaker ?")
+            speaker = _normalise_speaker_label(speaker_raw)
+            # For single-chunk results that weren't prefixed upstream,
+            # add the chunk prefix now.
+            if not speaker.startswith("Chunk "):
+                speaker = f"Chunk {chunk_idx} {speaker}"
+            text = _clean_text(seg.get("text", ""))
+            if not text:
+                continue
+            if speaker not in chunk_speakers:
+                chunk_speakers[speaker] = []
+            chunk_speakers[speaker].append(text)
+        if chunk_speakers:
+            chunks_excerpts[chunk_idx] = chunk_speakers
 
-    if not speaker_excerpts:
+    if not chunks_excerpts:
         print("No usable speaker text found in sample.", file=sys.stderr)
         return
 
-    # Display excerpts
-    print(f"\n=== Sample Transcription (first {sample_duration} seconds) ===\n")
-    speakers_sorted = sorted(speaker_excerpts.keys())
-    for speaker in speakers_sorted:
-        for excerpt in speaker_excerpts[speaker]:
-            print(f'  {speaker}: "{excerpt}"')
-        print()
+    # Display excerpts grouped by chunk
+    all_speakers: list[str] = []
+    for chunk_idx in sorted(chunks_excerpts.keys()):
+        chunk_speakers = chunks_excerpts[chunk_idx]
+        print(f"\n=== Chunk {chunk_idx} (first {sample_duration} seconds) ===\n")
+        for speaker in sorted(chunk_speakers.keys()):
+            if speaker not in all_speakers:
+                all_speakers.append(speaker)
+            for excerpt in chunk_speakers[speaker]:
+                print(f'  {speaker}: "{excerpt}"')
+            print()
+
+    all_speakers.sort()
 
     # Prompt for labels
     speaker_map: dict[str, str] = {}
-    for speaker in speakers_sorted:
+    for speaker in all_speakers:
         try:
             label = input(f"Label for {speaker} (Enter to keep as-is): ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -316,7 +338,7 @@ def _run_sample_workflow(
     # Write speaker map JSON
     map_path = in_path.parent / f"{in_path.stem}_speakers.json"
     full_map = {}
-    for speaker in speakers_sorted:
+    for speaker in all_speakers:
         full_map[speaker] = speaker_map.get(speaker, speaker)
     map_path.write_text(json.dumps(full_map, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nSpeaker map saved to: {map_path}")
@@ -398,6 +420,14 @@ def main() -> None:
         )
         sys.exit(2)
 
+    if getattr(args, "speaker_id", None) is not None and engine != "openai":
+        print(
+            "ERROR: --speaker-id requires --engine openai."
+            " Local engines don't support speaker diarization.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
     in_path = Path(args.input).expanduser().resolve()
     if not in_path.exists():
         print(f"ERROR: input file not found: {in_path}", file=sys.stderr)
@@ -440,9 +470,10 @@ def main() -> None:
     # avoid inflating file size.  Offline engines still need 16 kHz mono WAV.
     sample_duration = getattr(args, "speaker_id", None)
     if sample_duration is not None:
-        print(f"NOTE: --speaker-id mode, transcribing first {sample_duration} seconds only.")
+        print(f"NOTE: --speaker-id mode, transcribing first {sample_duration} seconds per chunk.")
     wav_path: Path | None = None
     if engine == "openai":
+        # Don't trim here — speaker-id trimming is handled per-chunk below.
         upload_path = in_path
     else:
         wav_path = convert_to_wav_16k_mono(
@@ -503,6 +534,63 @@ def main() -> None:
             openai_chunk_paths = split_audio_into_chunks(
                 upload_path, openai_chunk_duration
             )
+
+    # Speaker-id mode for OpenAI: short-circuit before full transcription.
+    # We trim each chunk (or the whole file if small) and transcribe just
+    # the sample, then run the interactive speaker-id workflow.
+    if sample_duration is not None and engine == "openai":
+        temp_dir = Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None
+        chunk_results: list[tuple[int, Any]] = []
+
+        if openai_chunk_paths:
+            # Large file: trim each chunk to sample_duration, transcribe each
+            for idx, chunk_path in enumerate(openai_chunk_paths, 1):
+                print(f"Trimming chunk {idx}/{len(openai_chunk_paths)} to {sample_duration}s...")
+                trimmed = trim_audio(chunk_path, sample_duration, temp_dir=temp_dir)
+                print(f"Transcribing chunk {idx}/{len(openai_chunk_paths)}...")
+                result = transcribe_file(
+                    wav_path=trimmed,
+                    api_key=api_key,  # type: ignore[arg-type]
+                    model=args.model,
+                    language=args.language,
+                    response_format=api_format,
+                    chunking_strategy=args.chunking,
+                )
+                chunk_results.append((idx, result))
+                if not args.keep_temp:
+                    try:
+                        trimmed.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        else:
+            # Small file: trim and transcribe as single chunk
+            print(f"Trimming to {sample_duration}s...")
+            trimmed = trim_audio(in_path, sample_duration, temp_dir=temp_dir)
+            print("Transcribing sample...")
+            result = transcribe_file(
+                wav_path=trimmed,
+                api_key=api_key,  # type: ignore[arg-type]
+                model=args.model,
+                language=args.language,
+                response_format=api_format,
+                chunking_strategy=args.chunking,
+            )
+            chunk_results.append((1, result))
+            if not args.keep_temp:
+                try:
+                    trimmed.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        _run_sample_workflow(chunk_results, args, in_path, sample_duration)
+        # Clean up chunk files
+        if not args.keep_temp and openai_chunk_paths:
+            for cp in openai_chunk_paths:
+                try:
+                    cp.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        sys.exit(0)
 
     # Set up caching.  Caching is enabled unless --no-cache is given.
     use_cache = not args.no_cache
@@ -649,21 +737,15 @@ def main() -> None:
             except Exception:
                 pass
 
-    # Clean up temp WAV when done.
+    # Clean up temp files when done.
     def _cleanup_temp() -> None:
-        if not args.keep_temp and wav_path is not None:
-            try:
-                wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
-            except Exception:
-                pass
-
-    # Sample mode: interactive speaker identification workflow.
-    if sample_duration is not None:
-        try:
-            _run_sample_workflow(api_result, args, in_path, sample_duration)
-        finally:
-            _cleanup_temp()
-        sys.exit(0)
+        if not args.keep_temp:
+            for tmp in (wav_path, upload_path if upload_path != in_path else None):
+                if tmp is not None:
+                    try:
+                        tmp.unlink(missing_ok=True)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
 
     # Write the output.
     try:
