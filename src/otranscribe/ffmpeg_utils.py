@@ -121,6 +121,95 @@ def wav_duration_seconds(wav_path: Path) -> float:
         return frames / float(rate)
 
 
+def wav_bytes_per_second(wav_path: Path) -> int:
+    """Return the byte rate of a WAV file (channels * sample_width * frame_rate)."""
+    import contextlib
+    import wave
+
+    with contextlib.closing(wave.open(str(wav_path), "rb")) as wf:
+        return wf.getnchannels() * wf.getsampwidth() * wf.getframerate()
+
+
+def audio_duration_seconds(path: Path) -> float:
+    """Return the duration of any audio/video file in seconds via ffprobe."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "csv=p=0",
+        str(path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return float(result.stdout.strip())
+
+
+def split_audio_into_chunks(
+    input_path: Path,
+    chunk_seconds: int,
+    temp_dir: Path | None = None,
+) -> list[Path]:
+    """Split any audio file into chunks using ffmpeg segment muxer (no re-encoding).
+
+    The output extension matches the input so the format is preserved.
+    Returns a list of chunk file paths in order.
+    """
+    ext = input_path.suffix  # e.g. ".m4a"
+    workdir = temp_dir or Path(tempfile.mkdtemp(prefix="otranscribe-chunks-"))
+    workdir.mkdir(parents=True, exist_ok=True)
+    pattern = str(workdir / f"chunk_%04d{ext}")
+
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-f",
+        "segment",
+        "-segment_time",
+        str(chunk_seconds),
+        "-c",
+        "copy",
+        "-reset_timestamps",
+        "1",
+        pattern,
+    ]
+    subprocess.run(cmd, check=True)
+
+    # Collect output files in sorted order
+    chunks = sorted(workdir.glob(f"chunk_*{ext}"))
+    if not chunks:
+        raise RuntimeError(f"ffmpeg segment produced no output files in {workdir}")
+    return chunks
+
+
+def chunk_duration_for_max_size(
+    audio_path: Path, max_bytes: int = 20_000_000
+) -> int:
+    """Calculate chunk duration in seconds that fits within ``max_bytes``.
+
+    Works with any audio format by computing bytes/sec from the file's
+    actual size and duration.  Falls back to WAV byte-rate calculation
+    if the file is a WAV.
+    """
+    file_size = audio_path.stat().st_size
+    duration = audio_duration_seconds(audio_path)
+    if duration <= 0:
+        raise ValueError(f"Audio file has zero or negative duration: {audio_path}")
+    bytes_per_sec = file_size / duration
+    chunk_dur = int(max_bytes / bytes_per_sec)
+    if chunk_dur < 1:
+        raise ValueError(
+            f"Byte rate ({bytes_per_sec:.0f} B/s) is too high to fit even 1 second "
+            f"in {max_bytes} bytes"
+        )
+    return chunk_dur
+
+
 def split_wav_into_chunks(
     wav_path: Path,
     chunk_seconds: int,

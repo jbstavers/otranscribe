@@ -35,11 +35,13 @@ from .cache import (
     save_cached_result,
 )
 from .ffmpeg_utils import (
+    chunk_duration_for_max_size,
     convert_to_wav_16k_mono,
     ensure_ffmpeg,
+    split_audio_into_chunks,
     split_wav_into_chunks,
 )
-from .openai_stt import transcribe_file
+from .openai_stt import transcribe_chunked, transcribe_file
 from .render import render_final
 
 # Supported response formats documented by OpenAI.  See
@@ -432,15 +434,22 @@ def main() -> None:
                 ext = api_format
             out_path = Path(f"{stem}.{ext}")
 
-    # Convert the input to WAV.
+    # Prepare the audio file for transcription.
+    # OpenAI accepts compressed formats directly — skip WAV conversion to
+    # avoid inflating file size.  Offline engines still need 16 kHz mono WAV.
     sample_duration = getattr(args, "speaker_id", None)
     if sample_duration is not None:
         print(f"NOTE: --speaker-id mode, transcribing first {sample_duration} seconds only.")
-    wav_path = convert_to_wav_16k_mono(
-        in_path,
-        temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
-        duration=sample_duration,
-    )
+    wav_path: Path | None = None
+    if engine == "openai":
+        upload_path = in_path
+    else:
+        wav_path = convert_to_wav_16k_mono(
+            in_path,
+            temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
+            duration=sample_duration,
+        )
+        upload_path = wav_path
 
     # Load speaker map if provided.  Keys in the map are normalised to
     # match the labels produced by _normalise_speaker_label.
@@ -466,6 +475,32 @@ def main() -> None:
     else:
         chunk_seconds = None
 
+    # OpenAI file-size check: the API has a 25 MB upload limit.
+    # Check the actual upload file (original for OpenAI, WAV for offline).
+    openai_chunk_paths: list[Path] | None = None
+    openai_chunk_duration: int | None = None
+    max_openai_bytes = 20_000_000
+    if engine == "openai":
+        file_size = upload_path.stat().st_size
+        if file_size > max_openai_bytes:
+            size_mb = file_size / 1_000_000
+            openai_chunk_duration = chunk_duration_for_max_size(
+                upload_path, max_bytes=max_openai_bytes
+            )
+            chunk_minutes = openai_chunk_duration / 60
+            num_chunks = -(-file_size // max_openai_bytes)  # ceiling division
+            print(
+                f"File is {size_mb:.0f} MB (OpenAI limit: 25 MB). "
+                f"Will split into {num_chunks} chunks of ~{chunk_minutes:.0f} minutes each."
+            )
+            answer = input("Proceed with chunking? [Y/n] ").strip().lower()
+            if answer and answer not in ("y", "yes"):
+                print("Aborted.")
+                sys.exit(0)
+            openai_chunk_paths = split_audio_into_chunks(
+                upload_path, openai_chunk_duration
+            )
+
     # Set up caching.  Caching is enabled unless --no-cache is given.
     use_cache = not args.no_cache
     cache_dir = (
@@ -477,11 +512,14 @@ def main() -> None:
     key: str | None = None  # prevent UnboundLocalError
 
     # Compute cache key if caching is enabled.
+    # For OpenAI chunking, include the chunk duration so that a chunked
+    # transcription is cached separately from a non-chunked one.
+    effective_chunk_seconds = openai_chunk_duration if openai_chunk_paths else chunk_seconds
     api_result: Any | None = None
     if use_cache:
         try:
             key = compute_cache_key(
-                wav_path,
+                upload_path,
                 engine=engine,
                 model=(
                     args.model
@@ -492,7 +530,7 @@ def main() -> None:
                 ),
                 language=args.language,
                 api_format=api_format,
-                chunk_seconds=chunk_seconds,
+                chunk_seconds=effective_chunk_seconds,
             )
             cached = load_cached_result(cache_dir, key)
             if cached is not None:
@@ -505,14 +543,24 @@ def main() -> None:
     if api_result is None:
         try:
             if engine == "openai":
-                api_result = transcribe_file(
-                    wav_path=wav_path,
-                    api_key=api_key,
-                    model=args.model,
-                    language=args.language,
-                    response_format=api_format,
-                    chunking_strategy=args.chunking,
-                )
+                if openai_chunk_paths:
+                    api_result = transcribe_chunked(
+                        chunk_paths=openai_chunk_paths,
+                        api_key=api_key,  # type: ignore[arg-type]
+                        model=args.model,
+                        language=args.language,
+                        response_format=api_format,
+                        chunking_strategy=args.chunking,
+                    )
+                else:
+                    api_result = transcribe_file(
+                        wav_path=upload_path,
+                        api_key=api_key,  # type: ignore[arg-type]
+                        model=args.model,
+                        language=args.language,
+                        response_format=api_format,
+                        chunking_strategy=args.chunking,
+                    )
             else:
                 # Offline engines: optional chunking
                 def transcribe_single(wpath: Path) -> dict[str, Any]:
@@ -585,7 +633,7 @@ def main() -> None:
                     api_result = transcribe_single(wav_path)
         except Exception as exc:  # noqa: BLE001
             print(f"ERROR: failed to transcribe file: {exc}", file=sys.stderr)
-            if not args.keep_temp:
+            if not args.keep_temp and wav_path is not None:
                 try:
                     wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
                 except Exception:
@@ -600,7 +648,7 @@ def main() -> None:
 
     # Clean up temp WAV when done.
     def _cleanup_temp() -> None:
-        if not args.keep_temp:
+        if not args.keep_temp and wav_path is not None:
             try:
                 wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
             except Exception:
@@ -638,6 +686,13 @@ def main() -> None:
         print(f"OK -> {out_path}")
     finally:
         _cleanup_temp()
+        # Clean up OpenAI chunk files if any were created.
+        if not args.keep_temp and openai_chunk_paths:
+            for cp in openai_chunk_paths:
+                try:
+                    cp.unlink(missing_ok=True)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
 
     sys.exit(0)
 
