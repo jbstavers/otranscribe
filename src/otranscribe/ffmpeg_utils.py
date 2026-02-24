@@ -40,7 +40,12 @@ def ensure_ffmpeg() -> None:
         )
 
 
-def convert_to_wav_16k_mono(input_path: Path, *, temp_dir: Path | None = None) -> Path:
+def convert_to_wav_16k_mono(
+    input_path: Path,
+    *,
+    temp_dir: Path | None = None,
+    duration: int | None = None,
+) -> Path:
     """Convert ``input_path`` into a 16 kHz mono PCM WAV file.
 
     ``ffmpeg`` handles a huge range of input formats.  This helper
@@ -59,6 +64,9 @@ def convert_to_wav_16k_mono(input_path: Path, *, temp_dir: Path | None = None) -
         Optional directory to write the temporary WAV file.  If
         ``None`` a new temporary directory will be created with
         ``tempfile.mkdtemp``.
+    duration: int | None, default None
+        When set, only convert the first *duration* seconds of
+        audio.  Passed to ``ffmpeg`` as ``-t <seconds>``.
 
     Returns
     -------
@@ -88,8 +96,10 @@ def convert_to_wav_16k_mono(input_path: Path, *, temp_dir: Path | None = None) -
         "16000",
         "-c:a",
         "pcm_s16le",
-        str(wav_path),
     ]
+    if duration is not None:
+        cmd.extend(["-t", str(duration)])
+    cmd.append(str(wav_path))
 
     subprocess.run(cmd, check=True)
     return wav_path

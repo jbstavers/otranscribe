@@ -242,6 +242,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="simple",
         help="Markdown style when --out-format md.",
     )
+    transcribe_parser.add_argument(
+        "--sample",
+        nargs="?",
+        type=int,
+        const=120,
+        default=None,
+        metavar="SECONDS",
+        help="Transcribe only the first N seconds (default 120) for quick speaker identification.",
+    )
 
     return parser
 
@@ -327,9 +336,13 @@ def main() -> None:
             out_path = Path(f"{stem}.{ext}")
 
     # Convert the input to WAV.
+    sample_duration = getattr(args, "sample", None)
+    if sample_duration is not None:
+        print(f"NOTE: --sample mode, transcribing first {sample_duration} seconds only.")
     wav_path = convert_to_wav_16k_mono(
         in_path,
         temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
+        duration=sample_duration,
     )
 
     # Load speaker map if provided.  Keys in the map are normalised to
