@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
+
 import sys
 from pathlib import Path
 from typing import Any
@@ -261,119 +261,75 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_sample_workflow(
-    chunk_results: list[tuple[int, Any]],
-    args: argparse.Namespace,
-    in_path: Path,
+    *,
+    chunk_paths: list[Path],
+    api_key: str,
+    model: str,
+    language: str,
+    api_format: str,
+    chunking_strategy: str,
     sample_duration: int,
-) -> None:
-    """Interactive sample workflow for speaker identification.
+    keep_temp: bool,
+    temp_dir: Path | None,
+) -> dict[str, str]:
+    """Interactive chunk-by-chunk speaker identification workflow.
 
-    Displays speaker excerpts from per-chunk sample transcriptions,
-    prompts the user to label each speaker, writes a speaker map JSON
-    file, and optionally kicks off the full transcription.
-
-    Parameters
-    ----------
-    chunk_results : list[tuple[int, Any]]
-        List of ``(chunk_index, api_result)`` tuples.  ``chunk_index``
-        is 1-based.  Speaker labels in the API results should already
-        be prefixed with ``Chunk N`` by ``transcribe_chunked``, but
-        for single-chunk (small file) calls this function handles the
-        prefixing itself.
+    For each chunk: trims to ``sample_duration``, transcribes, displays
+    the transcript chronologically, and prompts the user to label each
+    speaker.  Returns the consolidated speaker map.
     """
     from .render import _normalise_speaker_label, _clean_text  # type: ignore
 
-    # Collect excerpts per speaker, grouped by chunk
-    # Structure: { chunk_idx: { speaker_label: [excerpts] } }
-    chunks_excerpts: dict[int, dict[str, list[str]]] = {}
+    speaker_map: dict[str, str] = {}
+    total = len(chunk_paths)
 
-    for chunk_idx, api_result in chunk_results:
-        segments = api_result.get("segments", []) if isinstance(api_result, dict) else []
-        chunk_speakers: dict[str, list[str]] = {}
+    for idx, chunk_path in enumerate(chunk_paths, 1):
+        # Trim and transcribe this chunk
+        print(f"\nTrimming chunk {idx}/{total} to {sample_duration}s...")
+        trimmed = trim_audio(chunk_path, sample_duration, temp_dir=temp_dir)
+        print(f"Transcribing chunk {idx}/{total}...")
+        result = transcribe_file(
+            wav_path=trimmed,
+            api_key=api_key,
+            model=model,
+            language=language,
+            response_format=api_format,
+            chunking_strategy=chunking_strategy,
+        )
+        if not keep_temp:
+            try:
+                trimmed.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        segments = result.get("segments", []) if isinstance(result, dict) else []
+
+        # Display segments chronologically with normalised labels
+        print(f"\n=== Chunk {idx} (first {sample_duration} seconds) ===\n")
+        chunk_speakers: list[str] = []
         for seg in segments:
             speaker_raw = seg.get("speaker", "Speaker ?")
             speaker = _normalise_speaker_label(speaker_raw)
-            # For single-chunk results that weren't prefixed upstream,
-            # add the chunk prefix now.
-            if not speaker.startswith("Chunk "):
-                speaker = f"Chunk {chunk_idx} {speaker}"
+            prefixed = f"Chunk {idx} {speaker}"
             text = _clean_text(seg.get("text", ""))
             if not text:
                 continue
-            if speaker not in chunk_speakers:
-                chunk_speakers[speaker] = []
-            chunk_speakers[speaker].append(text)
-        if chunk_speakers:
-            chunks_excerpts[chunk_idx] = chunk_speakers
-
-    if not chunks_excerpts:
-        print("No usable speaker text found in sample.", file=sys.stderr)
-        return
-
-    # Display excerpts grouped by chunk
-    all_speakers: list[str] = []
-    for chunk_idx in sorted(chunks_excerpts.keys()):
-        chunk_speakers = chunks_excerpts[chunk_idx]
-        print(f"\n=== Chunk {chunk_idx} (first {sample_duration} seconds) ===\n")
-        for speaker in sorted(chunk_speakers.keys()):
-            if speaker not in all_speakers:
-                all_speakers.append(speaker)
-            for excerpt in chunk_speakers[speaker]:
-                print(f'  {speaker}: "{excerpt}"')
-            print()
-
-    all_speakers.sort()
-
-    # Prompt for labels
-    speaker_map: dict[str, str] = {}
-    for speaker in all_speakers:
-        try:
-            label = input(f"Label for {speaker} (Enter to keep as-is): ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return
-        if label:
-            speaker_map[speaker] = label
-
-    # Write speaker map JSON
-    map_path = in_path.parent / f"{in_path.stem}_speakers.json"
-    full_map = {}
-    for speaker in all_speakers:
-        full_map[speaker] = speaker_map.get(speaker, speaker)
-    map_path.write_text(json.dumps(full_map, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\nSpeaker map saved to: {map_path}")
-
-    # Ask about full transcription
-    try:
-        answer = input("\nRun full transcription now with this speaker map? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
+            print(f'  {speaker}: "{text}"')
+            if prefixed not in chunk_speakers:
+                chunk_speakers.append(prefixed)
         print()
-        return
 
-    # Build the command for full transcription
-    cmd = ["otranscribe"]
-    cmd += ["-i", str(in_path)]
-    cmd += ["--speaker-map", str(map_path)]
-    cmd += ["--language", args.language]
-    cmd += ["--engine", args.engine]
-    cmd += ["--model", args.model]
-    cmd += ["--every", str(args.every)]
-    cmd += ["--render", args.render]
-    cmd += ["--out-format", args.out_format]
-    if args.out:
-        cmd += ["-o", args.out]
-    if args.keep_temp:
-        cmd += ["--keep-temp"]
-    if args.no_cache:
-        cmd += ["--no-cache"]
+        # Prompt for labels for this chunk's speakers
+        for prefixed in chunk_speakers:
+            try:
+                label = input(f"Label for {prefixed} (Enter to keep as-is): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return speaker_map
+            if label:
+                speaker_map[prefixed] = label
 
-    if answer == "y":
-        print(f"\nRunning full transcription...\n")
-        subprocess.run(cmd)
-    else:
-        print(f"\nTo run the full transcription later:\n")
-        print("  " + " ".join(cmd))
-        print()
+    return speaker_map
 
 
 def main() -> None:
@@ -535,61 +491,121 @@ def main() -> None:
                 upload_path, openai_chunk_duration
             )
 
-    # Speaker-id mode for OpenAI: short-circuit before full transcription.
-    # We trim each chunk (or the whole file if small) and transcribe just
-    # the sample, then run the interactive speaker-id workflow.
+    # Speaker-id mode for OpenAI: interactive chunk-by-chunk identification
+    # followed by inline full transcription.
     if sample_duration is not None and engine == "openai":
         temp_dir = Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None
-        chunk_results: list[tuple[int, Any]] = []
 
-        if openai_chunk_paths:
-            # Large file: trim each chunk to sample_duration, transcribe each
-            for idx, chunk_path in enumerate(openai_chunk_paths, 1):
-                print(f"Trimming chunk {idx}/{len(openai_chunk_paths)} to {sample_duration}s...")
-                trimmed = trim_audio(chunk_path, sample_duration, temp_dir=temp_dir)
-                print(f"Transcribing chunk {idx}/{len(openai_chunk_paths)}...")
-                result = transcribe_file(
-                    wav_path=trimmed,
+        # Build list of chunk paths for the sample workflow.
+        # For small files (no chunking), treat the original file as a single chunk.
+        sample_chunk_paths = openai_chunk_paths if openai_chunk_paths else [in_path]
+
+        speaker_map = _run_sample_workflow(
+            chunk_paths=sample_chunk_paths,
+            api_key=api_key,  # type: ignore[arg-type]
+            model=args.model,
+            language=args.language,
+            api_format=api_format,
+            chunking_strategy=args.chunking,
+            sample_duration=sample_duration,
+            keep_temp=args.keep_temp,
+            temp_dir=temp_dir,
+        )
+
+        # Write speaker map JSON
+        map_path = in_path.parent / f"{in_path.stem}_speakers.json"
+        full_map = {}
+        # Include all speakers; unlabelled ones keep their key as value
+        for k, v in speaker_map.items():
+            full_map[k] = v
+        if full_map:
+            map_path.write_text(json.dumps(full_map, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"\nSpeaker map saved to: {map_path}")
+
+        # Ask whether to proceed with full transcription
+        try:
+            answer = input("\nRun full transcription now with this speaker map? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            if not args.keep_temp and openai_chunk_paths:
+                for cp in openai_chunk_paths:
+                    try:
+                        cp.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            sys.exit(0)
+
+        if answer not in ("y", "yes"):
+            # Show command for later use
+            cmd_parts = ["otranscribe", "-i", str(in_path)]
+            if full_map:
+                cmd_parts += ["--speaker-map", str(map_path)]
+            cmd_parts += ["--language", args.language, "--model", args.model]
+            cmd_parts += ["--every", str(args.every), "--render", args.render]
+            cmd_parts += ["--out-format", args.out_format]
+            if args.out:
+                cmd_parts += ["-o", args.out]
+            print(f"\nTo run the full transcription later:\n")
+            print("  " + " ".join(cmd_parts))
+            print()
+            if not args.keep_temp and openai_chunk_paths:
+                for cp in openai_chunk_paths:
+                    try:
+                        cp.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            sys.exit(0)
+
+        # Inline full transcription — reuse already-split chunks, no re-chunking
+        print("\nRunning full transcription...\n")
+        try:
+            if openai_chunk_paths:
+                api_result = transcribe_chunked(
+                    chunk_paths=openai_chunk_paths,
                     api_key=api_key,  # type: ignore[arg-type]
                     model=args.model,
                     language=args.language,
                     response_format=api_format,
                     chunking_strategy=args.chunking,
                 )
-                chunk_results.append((idx, result))
-                if not args.keep_temp:
+            else:
+                api_result = transcribe_file(
+                    wav_path=upload_path,
+                    api_key=api_key,  # type: ignore[arg-type]
+                    model=args.model,
+                    language=args.language,
+                    response_format=api_format,
+                    chunking_strategy=args.chunking,
+                )
+        except Exception as exc:
+            print(f"ERROR: failed to transcribe file: {exc}", file=sys.stderr)
+            sys.exit(1)
+        finally:
+            if not args.keep_temp and openai_chunk_paths:
+                for cp in openai_chunk_paths:
                     try:
-                        trimmed.unlink(missing_ok=True)
+                        cp.unlink(missing_ok=True)
                     except Exception:
                         pass
-        else:
-            # Small file: trim and transcribe as single chunk
-            print(f"Trimming to {sample_duration}s...")
-            trimmed = trim_audio(in_path, sample_duration, temp_dir=temp_dir)
-            print("Transcribing sample...")
-            result = transcribe_file(
-                wav_path=trimmed,
-                api_key=api_key,  # type: ignore[arg-type]
-                model=args.model,
-                language=args.language,
-                response_format=api_format,
-                chunking_strategy=args.chunking,
-            )
-            chunk_results.append((1, result))
-            if not args.keep_temp:
-                try:
-                    trimmed.unlink(missing_ok=True)
-                except Exception:
-                    pass
 
-        _run_sample_workflow(chunk_results, args, in_path, sample_duration)
-        # Clean up chunk files
-        if not args.keep_temp and openai_chunk_paths:
-            for cp in openai_chunk_paths:
-                try:
-                    cp.unlink(missing_ok=True)
-                except Exception:
-                    pass
+        # Render and write output
+        if args.render == "raw":
+            if isinstance(api_result, (dict, list)):
+                out_path.write_text(
+                    json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            else:
+                out_path.write_text(str(api_result), encoding="utf-8")
+        else:
+            text = render_final(
+                api_result,
+                every_seconds=args.every,
+                speaker_map=full_map if full_map else None,
+                out_format=args.out_format,
+                md_style=args.md_style,
+            )
+            out_path.write_text(text, encoding="utf-8")
+        print(f"OK -> {out_path}")
         sys.exit(0)
 
     # Set up caching.  Caching is enabled unless --no-cache is given.

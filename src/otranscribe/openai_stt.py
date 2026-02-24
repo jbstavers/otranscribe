@@ -175,9 +175,11 @@ def transcribe_chunked(
                 pass
             # Prefix speaker labels with chunk index so that "Speaker 0"
             # in different chunks stays distinct after merging.
+            # Normalise first so the stored form is always "Chunk N Speaker X".
+            from .render import _normalise_speaker_label
             raw_speaker = seg_copy.get("speaker")
             if raw_speaker is not None:
-                seg_copy["speaker"] = f"Chunk {idx} {raw_speaker}"
+                seg_copy["speaker"] = f"Chunk {idx} {_normalise_speaker_label(raw_speaker)}"
             all_segments.append(seg_copy)
 
         offset += audio_duration_seconds(chunk_path)
