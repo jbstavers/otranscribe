@@ -245,7 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Markdown style when --out-format md.",
     )
     transcribe_parser.add_argument(
-        "--sample",
+        "--speaker-id",
         nargs="?",
         type=int,
         const=120,
@@ -433,9 +433,9 @@ def main() -> None:
             out_path = Path(f"{stem}.{ext}")
 
     # Convert the input to WAV.
-    sample_duration = getattr(args, "sample", None)
+    sample_duration = getattr(args, "speaker_id", None)
     if sample_duration is not None:
-        print(f"NOTE: --sample mode, transcribing first {sample_duration} seconds only.")
+        print(f"NOTE: --speaker-id mode, transcribing first {sample_duration} seconds only.")
     wav_path = convert_to_wav_16k_mono(
         in_path,
         temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
