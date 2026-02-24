@@ -22,7 +22,9 @@ Use the ``--help`` flag to see all available options.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -242,8 +244,112 @@ def build_parser() -> argparse.ArgumentParser:
         default="simple",
         help="Markdown style when --out-format md.",
     )
+    transcribe_parser.add_argument(
+        "--speaker-id",
+        nargs="?",
+        type=int,
+        const=120,
+        default=None,
+        metavar="SECONDS",
+        help="Transcribe only the first N seconds (default 120) for quick speaker identification.",
+    )
 
     return parser
+
+
+def _run_sample_workflow(
+    api_result: Any,
+    args: argparse.Namespace,
+    in_path: Path,
+    sample_duration: int,
+) -> None:
+    """Interactive sample workflow for speaker identification.
+
+    Displays speaker excerpts from the sample transcription, prompts the
+    user to label each speaker, writes a speaker map JSON file, and
+    optionally kicks off the full transcription.
+    """
+    from .render import _normalise_speaker_label, _clean_text  # type: ignore
+
+    segments = api_result.get("segments", []) if isinstance(api_result, dict) else []
+    if not segments:
+        print("No speaker segments found in sample.", file=sys.stderr)
+        return
+
+    # Collect excerpts per speaker (up to 3 per speaker)
+    speaker_excerpts: dict[str, list[str]] = {}
+    for seg in segments:
+        speaker_raw = seg.get("speaker", "Speaker ?")
+        speaker = _normalise_speaker_label(speaker_raw)
+        text = _clean_text(seg.get("text", ""))
+        if not text:
+            continue
+        if speaker not in speaker_excerpts:
+            speaker_excerpts[speaker] = []
+        speaker_excerpts[speaker].append(text)
+
+    if not speaker_excerpts:
+        print("No usable speaker text found in sample.", file=sys.stderr)
+        return
+
+    # Display excerpts
+    print(f"\n=== Sample Transcription (first {sample_duration} seconds) ===\n")
+    speakers_sorted = sorted(speaker_excerpts.keys())
+    for speaker in speakers_sorted:
+        for excerpt in speaker_excerpts[speaker]:
+            print(f'  {speaker}: "{excerpt}"')
+        print()
+
+    # Prompt for labels
+    speaker_map: dict[str, str] = {}
+    for speaker in speakers_sorted:
+        try:
+            label = input(f"Label for {speaker} (Enter to keep as-is): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if label:
+            speaker_map[speaker] = label
+
+    # Write speaker map JSON
+    map_path = in_path.parent / f"{in_path.stem}_speakers.json"
+    full_map = {}
+    for speaker in speakers_sorted:
+        full_map[speaker] = speaker_map.get(speaker, speaker)
+    map_path.write_text(json.dumps(full_map, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\nSpeaker map saved to: {map_path}")
+
+    # Ask about full transcription
+    try:
+        answer = input("\nRun full transcription now with this speaker map? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+
+    # Build the command for full transcription
+    cmd = ["otranscribe"]
+    cmd += ["-i", str(in_path)]
+    cmd += ["--speaker-map", str(map_path)]
+    cmd += ["--language", args.language]
+    cmd += ["--engine", args.engine]
+    cmd += ["--model", args.model]
+    cmd += ["--every", str(args.every)]
+    cmd += ["--render", args.render]
+    cmd += ["--out-format", args.out_format]
+    if args.out:
+        cmd += ["-o", args.out]
+    if args.keep_temp:
+        cmd += ["--keep-temp"]
+    if args.no_cache:
+        cmd += ["--no-cache"]
+
+    if answer == "y":
+        print(f"\nRunning full transcription...\n")
+        subprocess.run(cmd)
+    else:
+        print(f"\nTo run the full transcription later:\n")
+        print("  " + " ".join(cmd))
+        print()
 
 
 def main() -> None:
@@ -327,17 +433,19 @@ def main() -> None:
             out_path = Path(f"{stem}.{ext}")
 
     # Convert the input to WAV.
+    sample_duration = getattr(args, "speaker_id", None)
+    if sample_duration is not None:
+        print(f"NOTE: --speaker-id mode, transcribing first {sample_duration} seconds only.")
     wav_path = convert_to_wav_16k_mono(
         in_path,
         temp_dir=Path(args.temp_dir).expanduser().resolve() if args.temp_dir else None,
+        duration=sample_duration,
     )
 
     # Load speaker map if provided.  Keys in the map are normalised to
     # match the labels produced by _normalise_speaker_label.
     speaker_map: dict[str, str] | None = None
     if args.speaker_map:
-        import json
-
         try:
             with open(Path(args.speaker_map).expanduser(), encoding="utf-8") as f:
                 raw_map = json.load(f)
@@ -490,13 +598,27 @@ def main() -> None:
             except Exception:
                 pass
 
+    # Clean up temp WAV when done.
+    def _cleanup_temp() -> None:
+        if not args.keep_temp:
+            try:
+                wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
+    # Sample mode: interactive speaker identification workflow.
+    if sample_duration is not None:
+        try:
+            _run_sample_workflow(api_result, args, in_path, sample_duration)
+        finally:
+            _cleanup_temp()
+        sys.exit(0)
+
     # Write the output.
     try:
         if args.render == "raw":
             # Write raw output depending on type.
             if isinstance(api_result, (dict, list)):
-                import json
-
                 out_path.write_text(
                     json.dumps(api_result, ensure_ascii=False, indent=2),
                     encoding="utf-8",
@@ -515,12 +637,7 @@ def main() -> None:
             out_path.write_text(text, encoding="utf-8")
         print(f"OK -> {out_path}")
     finally:
-        if not args.keep_temp:
-            # Remove the temporary WAV if we created it in a temp dir.
-            try:
-                wav_path.unlink(missing_ok=True)  # type: ignore[attr-defined]
-            except Exception:
-                pass
+        _cleanup_temp()
 
     sys.exit(0)
 
