@@ -373,7 +373,8 @@ def main() -> None:
 
     args = parser.parse_args(argv)
     if args.command is None:
-        args.command = "transcribe"
+        parser.print_help()
+        sys.exit(0)
 
     if args.command == "doctor":
         from .doctor import format_report
@@ -488,9 +489,11 @@ def main() -> None:
                 upload_path, max_bytes=max_openai_bytes
             )
             chunk_minutes = openai_chunk_duration / 60
-            num_chunks = -(-file_size // max_openai_bytes)  # ceiling division
+            from .ffmpeg_utils import audio_duration_seconds
+            total_duration = audio_duration_seconds(upload_path)
+            num_chunks = -(-int(total_duration) // openai_chunk_duration)  # ceiling division
             print(
-                f"File is {size_mb:.0f} MB (OpenAI limit: 25 MB). "
+                f"File is {size_mb:.0f} MB (OpenAI limits: 25 MB / ~23 min per request). "
                 f"Will split into {num_chunks} chunks of ~{chunk_minutes:.0f} minutes each."
             )
             answer = input("Proceed with chunking? [Y/n] ").strip().lower()

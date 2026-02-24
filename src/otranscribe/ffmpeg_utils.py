@@ -207,6 +207,11 @@ def chunk_duration_for_max_size(
             f"Byte rate ({bytes_per_sec:.0f} B/s) is too high to fit even 1 second "
             f"in {max_bytes} bytes"
         )
+    # OpenAI also enforces a max duration of 1400s per request.
+    # Cap at 1300s to leave margin.
+    max_duration = 1300
+    if chunk_dur > max_duration:
+        chunk_dur = max_duration
     return chunk_dur
 
 
